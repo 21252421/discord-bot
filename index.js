@@ -7,12 +7,14 @@ intents: [GatewayIntentBits.Guilds]
 // ===== TIME =====
 function parseTime(str) {
 let total = 0;
-const matches = str.match(/\d+[hm]/g);
+const matches = str.match(/\d+[dhms]/g);
 if (!matches) return 0;
 
 for (const m of matches) {
+if (m.endsWith("d")) total += parseInt(m) * 86400000;
 if (m.endsWith("h")) total += parseInt(m) * 3600000;
 if (m.endsWith("m")) total += parseInt(m) * 60000;
+if (m.endsWith("s")) total += parseInt(m) * 1000;
 }
 
 return total;
@@ -26,6 +28,24 @@ let sec = s % 60;
 return `${h}h ${m}m ${sec}s`;
 }
 
+// ===== COLOR =====
+function getColor(cell) {
+const c = cell.toLowerCase();
+if (c.startsWith("a")) return 0x00ff00;
+if (c.startsWith("b")) return 0x00bfff;
+if (c.startsWith("c")) return 0xff0000;
+return 0xffffff;
+}
+
+// ===== PLACERING =====
+function getPlacering(cell) {
+const c = cell.toLowerCase();
+if (c.startsWith("a")) return "A Celle";
+if (c.startsWith("b")) return "B Celle";
+if (c.startsWith("c")) return "C Celle";
+return "Ukendt";
+}
+
 // ===== COMMAND =====
 client.on("interactionCreate", async interaction => {
 if (!interaction.isChatInputCommand()) return;
@@ -35,25 +55,23 @@ try {
 await interaction.deferReply();
 
 ```
-// 🔥 SAFE OPTIONS
-const cell = interaction.options.getString("celle") || "ukendt";
-const timeStr = interaction.options.getString("tid") || "1m";
+const cell = interaction.options.getString("celle");
+const timeStr = interaction.options.getString("tid");
 
 const ms = parseTime(timeStr);
-if (!ms) {
-  return interaction.editReply("❌ Ugyldig tid");
-}
+if (!ms) return interaction.editReply("❌ Ugyldig tid");
 
 const end = Date.now() + ms;
 
 const embed = new EmbedBuilder()
-  .setTitle("⏳ Celle")
-  .setColor(0x00ff00)
+  .setTitle("⏳ Celle Nedtælling")
+  .setColor(getColor(cell))
   .addFields(
-    { name: "Celle", value: cell },
+    { name: "Celle", value: cell, inline: true },
+    { name: "Placering", value: getPlacering(cell), inline: true },
     { name: "Tid tilbage", value: formatTime(ms) }
   )
-  .setFooter({ text: "Bot virker stabilt" });
+  .setFooter({ text: "Bot kører stabilt 🔥" });
 
 const message = await interaction.editReply({ embeds: [embed] });
 
@@ -65,8 +83,9 @@ const interval = setInterval(async () => {
       clearInterval(interval);
 
       embed.setFields(
-        { name: "Celle", value: cell },
-        { name: "Tid tilbage", value: "❌ Færdig" }
+        { name: "Celle", value: cell, inline: true },
+        { name: "Placering", value: getPlacering(cell), inline: true },
+        { name: "Tid tilbage", value: "❌ Udløbet" }
       );
 
       await message.edit({ embeds: [embed] });
@@ -74,7 +93,8 @@ const interval = setInterval(async () => {
     }
 
     embed.setFields(
-      { name: "Celle", value: cell },
+      { name: "Celle", value: cell, inline: true },
+      { name: "Placering", value: getPlacering(cell), inline: true },
       { name: "Tid tilbage", value: formatTime(remaining) }
     );
 
@@ -101,7 +121,7 @@ if (interaction.deferred) {
 
 // ===== READY =====
 client.once("ready", () => {
-console.log("🔥 Bot virker nu 100%");
+console.log("🔥 Bot kører stabilt!");
 });
 
 client.login(process.env.TOKEN);

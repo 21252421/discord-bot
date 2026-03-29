@@ -20,47 +20,17 @@ if (c.startsWith("C")) return 0xff0000;
 return 0xffffff;
 }
 
-// ===== PLACERING SYSTEM =====
+// ===== PLACERING =====
 function getPlacering(celle) {
 const c = celle.toLowerCase();
 
-// ===== A PRE =====
-if (c.startsWith("apre37") || c.startsWith("apre38")) return "Hønsene (Portal)";
-if (c.startsWith("apre75")) return "Kakerlakkene (Portal)";
-if (c.startsWith("apre111")) return "Kyllingerne (Portal)";
-if (c.startsWith("apre151")) return "Aberne (Portal)";
-if (c.startsWith("apre231")) return "Æslerne (Portal)";
-if (c.startsWith("apre261")) return "Ænderne (Portal)";
-if (c.startsWith("apre311")) return "Ulvene (Portal)";
-if (c.startsWith("apre383")) return "Bjørnene (Casino)";
-if (c.startsWith("apre393")) return "Pandaerne (Casino)";
-if (c.startsWith("apre403")) return "Koalaerne (Casino)";
-
-// ===== A NORMAL =====
-if (c.startsWith("a1")) return "Grisene (Portal)";
-if (c.startsWith("a200")) return "Koalaerne (Portal)";
-if (c.startsWith("a400")) return "Pelikanerne (Portal)";
-if (c.startsWith("a600")) return "Bacon (Portal)";
-if (c.startsWith("a800")) return "Bamserne (Portal)";
-if (c.startsWith("a1000")) return "Flodhestene (Portal)";
-if (c.startsWith("a1200")) return "Skildpadderne (Portal)";
-if (c.startsWith("a1400")) return "Tigerne (Portal)";
-if (c.startsWith("a1600")) return "Slangerne (Portal)";
-
-// ===== B =====
 if (c.startsWith("b1662")) return "Over vagtstue";
 if (c.startsWith("b1671")) return "Bag minen";
 if (c.startsWith("b1741")) return "BO celler";
-if (c.startsWith("b495")) return "Portal 1";
-if (c.startsWith("b1167")) return "Portal 2";
-if (c.startsWith("b1438")) return "Portal 8";
 
-// ===== C =====
-if (c.startsWith("c1")) return "Cellegang 1";
-if (c.startsWith("c97")) return "Cellegang 2";
-if (c.startsWith("c193")) return "Cellegang 3";
-if (c.startsWith("c289")) return "Cellegang 4";
-if (c.startsWith("c385")) return "Cellegang 5";
+if (c.startsWith("apre37") || c.startsWith("apre38")) return "Hønsene (Portal)";
+if (c.startsWith("apre75")) return "Kakerlakkene (Portal)";
+if (c.startsWith("apre111")) return "Kyllingerne (Portal)";
 
 return "Ukendt";
 }
@@ -85,13 +55,14 @@ if (interaction.commandName === "celle") {
 const celle = interaction.options.getString("celle");
 const tid = interaction.options.getString("tid");
 
+await interaction.deferReply(); // 🔥 FIXER TIMEOUT
+
+// parse tid
 let duration = 0;
 if (tid.includes("h")) duration += parseInt(tid) * 3600000;
 if (tid.includes("m")) duration += parseInt(tid) * 60000;
 
 const endTime = Date.now() + duration;
-
-await interaction.reply("Starter countdown...");
 
 const interval = setInterval(async () => {
   const remaining = endTime - Date.now();
@@ -113,7 +84,11 @@ const interval = setInterval(async () => {
     .setFooter({ text: "Oprettet af: " + interaction.user.username })
     .setTimestamp();
 
-  await interaction.editReply({ embeds: [embed] });
+  try {
+    await interaction.editReply({ embeds: [embed] });
+  } catch (err) {
+    clearInterval(interval);
+  }
 
 }, 1000);
 ```

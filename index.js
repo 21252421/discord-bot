@@ -166,18 +166,16 @@ await interaction.deferReply();
         interaction.channel.send(`<@&${role.id}> ⏰ 1 time tilbage for ${cell}`);
       }
 
-      if (remaining <= 0) {
-        clearInterval(interval);
-
-        embed.setFields(
-          { name: "Celle", value: cell, inline: true },
-          { name: "Placering", value: getPlacering(cell), inline: true },
-          { name: "Tid tilbage", value: "❌ Udløbet" },
-          { name: "Noter", value: note }
-        );
-
-        await msg.edit({ embeds: [embed] });
-        return;
+      if (!pinged && Date.now() >= pingTime) {
+        pinged = true;
+      
+        try {
+          await interaction.channel.send(
+            `<@&${role.id}> ⏰ 1 time tilbage for ${cell}`
+          );
+        } catch (err) {
+          console.error("Ping fejl:", err);
+        }
       }
 
       embed.setFields(

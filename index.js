@@ -26,12 +26,12 @@ if (!interaction.isChatInputCommand()) return;
 if (interaction.commandName !== "celle") return;
 
 try {
-const celle = interaction.options.getString("celle") || "Ukendt";
-const tid = interaction.options.getString("tid") || "0m";
+// 🔥 SAFE HENTNING
+const celle = interaction.options.getString("celle") || "ukendt";
+const tid = interaction.options.getString("tid") || "1m";
 
 ```
-// 👉 PARSE TID (SIKKER VERSION)
-let duration = 0;
+let duration = 60000; // default 1 min
 
 const hours = tid.match(/(\d+)h/);
 const minutes = tid.match(/(\d+)m/);
@@ -39,13 +39,8 @@ const minutes = tid.match(/(\d+)m/);
 if (hours) duration += parseInt(hours[1]) * 3600000;
 if (minutes) duration += parseInt(minutes[1]) * 60000;
 
-if (duration <= 0) {
-  return interaction.reply("❌ Ugyldig tid! Brug fx 1h eller 30m");
-}
-
 const endTime = Date.now() + duration;
 
-// 👉 SVAR MED DET SAMME (ingen deferReply!)
 await interaction.reply("⏳ Starter countdown...");
 
 const interval = setInterval(async () => {
@@ -64,8 +59,7 @@ const interval = setInterval(async () => {
         { name: "Celle", value: celle, inline: true },
         { name: "Tid tilbage", value: formatTime(remaining), inline: false }
       )
-      .setFooter({ text: "Oprettet af: " + interaction.user.username })
-      .setTimestamp();
+      .setFooter({ text: "Oprettet af: " + interaction.user.username });
 
     await interaction.editReply({ embeds: [embed] });
 
@@ -77,10 +71,14 @@ const interval = setInterval(async () => {
 ```
 
 } catch (err) {
-console.error("Command fejl:", err);
+console.error("FEJL:", err);
+
+```
 if (!interaction.replied) {
-interaction.reply("❌ Der skete en fejl");
+  await interaction.reply("❌ Der skete en fejl (tjek logs)");
 }
+```
+
 }
 });
 

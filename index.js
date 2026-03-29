@@ -4,22 +4,35 @@ const client = new Client({
 intents: [GatewayIntentBits.Guilds]
 });
 
+// 🔥 FANGER ALLE ERRORS (MEGA VIGTIG)
+client.on("error", console.error);
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
+
 client.on("interactionCreate", async interaction => {
 if (!interaction.isChatInputCommand()) return;
 
 if (interaction.commandName === "celle") {
+try {
+// 🔥 SVAR MED DET SAMME
+await interaction.reply("✅ Starter...");
 
 ```
-// 🔥 SVAR MED DET SAMME (før alt andet)
-await interaction.reply("✅ BOT VIRKER NU");
+  // ❌ ingen options endnu (de crasher stadig)
+  const embed = new EmbedBuilder()
+    .setTitle("⏳ Celle")
+    .setColor(0x00ff00)
+    .setDescription("Bot virker nu uden crash");
 
-// ❌ INGEN options endnu (det er det der crasher)
-const embed = new EmbedBuilder()
-  .setTitle("TEST")
-  .setColor(0x00ff00)
-  .setDescription("Vi bygger videre herfra");
+  await interaction.editReply({ embeds: [embed] });
 
-await interaction.editReply({ embeds: [embed] });
+} catch (err) {
+  console.error("COMMAND ERROR:", err);
+
+  if (!interaction.replied) {
+    await interaction.reply("❌ Der skete en fejl");
+  }
+}
 ```
 
 }

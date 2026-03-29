@@ -115,8 +115,8 @@ function derivePlacement(cellName) {
     if (inRange(101, 230)) return 'Portal under Hvid cellegang';
     if (inRange(231, 337)) return 'Portal 1';
     if (inRange(540, 637)) return 'Portal 3';
-    if (inRange(638, 766)) return 'Portal 4';
-    if (inRange(767, 831)) return 'Portal 5';
+    if (inRange(638, 734)) return 'Portal 4';
+    if (inRange(735, 831)) return 'Portal 5';
     if (inRange(832, 928)) return 'Portal 6';
     if (inRange(929, 1025)) return 'Portal 7';
   }

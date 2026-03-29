@@ -63,9 +63,20 @@ function derivePlacement(cellName) {
   return `${firstLetter} Celle`;
 }
 
+function formatRemaining(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+}
+
 function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, expired = false }) {
   const relativeEnd = `<t:${Math.floor(endTimeMs / 1000)}:R>`;
   const absoluteEnd = `<t:${Math.floor(endTimeMs / 1000)}:f>`;
+  const remaining = endTimeMs - Date.now();
 
   const embed = new EmbedBuilder()
     .setTitle('⏳ Celle Nedtælling')
@@ -75,7 +86,9 @@ function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, e
       { name: 'Placering', value: derivePlacement(cellName), inline: true },
       {
         name: 'Tid tilbage',
-        value: expired ? `❌ Udløbet (${absoluteEnd})` : `${relativeEnd}\nUdløber ${absoluteEnd}`,
+        value: expired
+          ? `❌ Udløbet (${absoluteEnd})`
+          : `${formatRemaining(remaining)}\nUdløber ${relativeEnd} (${absoluteEnd})`,
         inline: false,
       },
       { name: 'Noter', value: note || 'Ingen noter', inline: false },
@@ -195,8 +208,26 @@ client.on('interactionCreate', async (interaction) => {
   });
 
   const key = `${message.channelId}:${message.id}`;
-  const timeout = setTimeout(async () => {
+  const tick = async () => {
+    const remainingMs = endTimeMs - Date.now();
+
     try {
+      if (remainingMs > 0) {
+        const activeEmbed = buildCountdownEmbed({
+          cellName,
+          note,
+          imageUrl,
+          createdBy: interaction.user.username,
+          endTimeMs,
+        });
+        await message.edit({ embeds: [activeEmbed] });
+
+        const nextDelay = 1000 - (Date.now() % 1000);
+        const nextTimeout = setTimeout(tick, nextDelay);
+        activeCountdowns.set(key, nextTimeout);
+        return;
+      }
+
       const expiredEmbed = buildCountdownEmbed({
         cellName,
         note,
@@ -207,12 +238,14 @@ client.on('interactionCreate', async (interaction) => {
       });
       await message.edit({ embeds: [expiredEmbed] });
     } catch (error) {
-      console.error('Fejl ved udløb-opdatering:', error.message);
+      console.error('Fejl ved nedtælling-opdatering:', error.message);
     } finally {
       activeCountdowns.delete(key);
     }
-  }, durationMs);
+  };
 
+  const firstDelay = 1000 - (Date.now() % 1000);
+  const timeout = setTimeout(tick, firstDelay);
   activeCountdowns.set(key, timeout);
 });
 

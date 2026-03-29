@@ -4,7 +4,7 @@ const client = new Client({
 intents: [GatewayIntentBits.Guilds]
 });
 
-// ===== REGISTER COMMAND =====
+// ===== COMMAND REGISTER =====
 const commands = [
 new SlashCommandBuilder()
 .setName("celle")
@@ -17,12 +17,12 @@ const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
 (async () => {
 try {
-console.log("🔄 Register commands...");
+console.log("Register commands...");
 await rest.put(
 Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
 { body: commands }
 );
-console.log("✅ Commands opdateret");
+console.log("Commands opdateret");
 } catch (err) {
 console.log(err);
 }
@@ -63,17 +63,21 @@ const cell = interaction.options.getString("celle") || "ukendt";
 const timeStr = interaction.options.getString("tid") || "1m";
 
 const ms = parseTime(timeStr);
-if (!ms) return interaction.editReply("❌ Ugyldig tid");
+
+if (!ms) {
+  await interaction.editReply("❌ Ugyldig tid");
+  return;
+}
 
 const end = Date.now() + ms;
 
 const embed = new EmbedBuilder()
   .setTitle("⏳ Celle Nedtælling")
   .setColor(0x00ff00)
-  .addFields(
-    { name: "Celle", value: cell },
-    { name: "Tid tilbage", value: formatTime(ms) }
-  )
+  .addFields([
+    { name: "Celle", value: cell, inline: true },
+    { name: "Tid tilbage", value: formatTime(ms), inline: true }
+  ])
   .setFooter({ text: "Bot virker 🔥" });
 
 const msg = await interaction.editReply({ embeds: [embed] });
@@ -85,19 +89,19 @@ const interval = setInterval(async () => {
     if (remaining <= 0) {
       clearInterval(interval);
 
-      embed.setFields(
-        { name: "Celle", value: cell },
-        { name: "Tid tilbage", value: "❌ Færdig" }
-      );
+      embed.setFields([
+        { name: "Celle", value: cell, inline: true },
+        { name: "Tid tilbage", value: "❌ Færdig", inline: true }
+      ]);
 
       await msg.edit({ embeds: [embed] });
       return;
     }
 
-    embed.setFields(
-      { name: "Celle", value: cell },
-      { name: "Tid tilbage", value: formatTime(remaining) }
-    );
+    embed.setFields([
+      { name: "Celle", value: cell, inline: true },
+      { name: "Tid tilbage", value: formatTime(remaining), inline: true }
+    ]);
 
     await msg.edit({ embeds: [embed] });
 
@@ -112,9 +116,11 @@ const interval = setInterval(async () => {
 console.log("COMMAND CRASH:", err);
 
 ```
-if (interaction.deferred) {
-  interaction.editReply("❌ Fejl");
-}
+try {
+  if (interaction.deferred) {
+    await interaction.editReply("❌ Fejl");
+  }
+} catch {}
 ```
 
 }
@@ -122,7 +128,7 @@ if (interaction.deferred) {
 
 // ===== READY =====
 client.once("ready", () => {
-console.log("🔥 Bot virker nu 100%");
+console.log("BOT ONLINE 🔥");
 });
 
 client.login(process.env.TOKEN);

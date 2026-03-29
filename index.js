@@ -8,7 +8,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const ROLE_NAME = "Celler+";
 
-// ===== EXPRESS (Railway keep alive) =====
+// ===== EXPRESS =====
 const app = express();
 app.get("/", (req, res) => res.send("Alive"));
 app.listen(process.env.PORT || 3000, () => {
@@ -25,7 +25,7 @@ client.on("error", console.error);
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
-// ===== SLASH COMMAND =====
+// ===== COMMAND =====
 const commands = [
 new SlashCommandBuilder()
 .setName('celle')
@@ -52,7 +52,7 @@ option.setName('billede')
 )
 ].map(cmd => cmd.toJSON());
 
-// ===== REGISTER COMMAND (kun første gang) =====
+// ===== REGISTER =====
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 (async () => {
@@ -68,7 +68,7 @@ console.error(error);
 }
 })();
 
-// ===== TIME PARSER =====
+// ===== TIME =====
 function parseTime(str) {
 let total = 0;
 const matches = str.match(/\d+[dhms]/g);
@@ -84,7 +84,6 @@ if (arg.endsWith("s")) total += parseInt(arg) * 1000;
 return total;
 }
 
-// ===== FORMAT =====
 function formatTime(ms) {
 let s = Math.floor(ms / 1000);
 let d = Math.floor(s / 86400);
@@ -94,7 +93,7 @@ let sec = s % 60;
 return `${d}d ${h}h ${m}m ${sec}s`;
 }
 
-// ===== FARVE =====
+// ===== COLOR =====
 function getColor(cell) {
 const c = cell.toLowerCase();
 if (c.startsWith("b")) return 0x00bfff;
@@ -112,7 +111,7 @@ if (c.startsWith("c")) return "C Celle";
 return "Ukendt";
 }
 
-// ===== COMMAND =====
+// ===== COMMAND HANDLER =====
 client.on('interactionCreate', async interaction => {
 if (!interaction.isChatInputCommand()) return;
 
@@ -148,7 +147,8 @@ await interaction.deferReply();
       { name: "Tid tilbage", value: formatTime(timeMs) },
       { name: "Noter", value: note }
     )
-    .setFooter({ text: `Oprettet af: ${interaction.user.username}` });
+    // ✅ FIXED FOOTER (INGEN BACKTICKS)
+    .setFooter({ text: "Oprettet af: " + interaction.user.username });
 
   if (image) embed.setImage(image.url);
 

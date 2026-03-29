@@ -111,7 +111,7 @@ if (c.startsWith("c")) return "C Celle";
 return "Ukendt";
 }
 
-// ===== COMMAND HANDLER =====
+// ===== COMMAND =====
 client.on('interactionCreate', async interaction => {
 if (!interaction.isChatInputCommand()) return;
 
@@ -147,7 +147,6 @@ await interaction.deferReply();
       { name: "Tid tilbage", value: formatTime(timeMs) },
       { name: "Noter", value: note }
     )
-    // ✅ FIXED FOOTER (INGEN BACKTICKS)
     .setFooter({ text: "Oprettet af: " + interaction.user.username });
 
   if (image) embed.setImage(image.url);
@@ -163,19 +162,29 @@ await interaction.deferReply();
 
       if (!pinged && Date.now() >= pingTime) {
         pinged = true;
-        interaction.channel.send(`<@&${role.id}> ⏰ 1 time tilbage for ${cell}`);
-      }
 
-      if (!pinged && Date.now() >= pingTime) {
-        pinged = true;
-      
         try {
-          await interaction.channel.send(
-            `<@&${role.id}> ⏰ 1 time tilbage for ${cell}`
-          );
+          const channel = await interaction.client.channels.fetch(interaction.channelId);
+          if (channel) {
+            await channel.send(`<@&${role.id}> ⏰ 1 time tilbage for ${cell}`);
+          }
         } catch (err) {
           console.error("Ping fejl:", err);
         }
+      }
+
+      if (remaining <= 0) {
+        clearInterval(interval);
+
+        embed.setFields(
+          { name: "Celle", value: cell, inline: true },
+          { name: "Placering", value: getPlacering(cell), inline: true },
+          { name: "Tid tilbage", value: "❌ Udløbet" },
+          { name: "Noter", value: note }
+        );
+
+        await msg.edit({ embeds: [embed] });
+        return;
       }
 
       embed.setFields(

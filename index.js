@@ -222,7 +222,7 @@ function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, e
 async function registerSlashCommand() {
   const command = new SlashCommandBuilder()
     .setName('celle')
-    .setDescription('Opret en celle-nedtælling')
+    .setDescription('Opret celle nedtælling')
     .addStringOption((option) =>
       option
         .setName('celle')
@@ -249,10 +249,14 @@ async function registerSlashCommand() {
     );
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
+
+  // Ryd gamle globale /celle kommandoer (fx "Test command"), så kun guild-versionen vises.
+  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
+
   await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
     body: [command.toJSON()],
   });
-  console.log('Slash command /celle registreret');
+  console.log('Slash command /celle registreret (kun én kommando aktiv)');
 }
 
 client.once('ready', async () => {

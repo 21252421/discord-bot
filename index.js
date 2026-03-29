@@ -10,25 +10,14 @@ if (!interaction.isChatInputCommand()) return;
 if (interaction.commandName === "celle") {
 
 ```
-await interaction.reply("⏳ Starter...");
+// 🔥 SVAR MED DET SAMME (før alt andet)
+await interaction.reply("✅ BOT VIRKER NU");
 
-let celle = "ukendt";
-let tid = "1m";
-
-try {
-  celle = interaction.options.getString("celle") || "ukendt";
-  tid = interaction.options.getString("tid") || "1m";
-} catch (e) {
-  console.log("Options virker ikke endnu");
-}
-
+// ❌ INGEN options endnu (det er det der crasher)
 const embed = new EmbedBuilder()
-  .setTitle("⏳ Celle")
+  .setTitle("TEST")
   .setColor(0x00ff00)
-  .addFields(
-    { name: "Celle", value: celle },
-    { name: "Tid", value: tid }
-  );
+  .setDescription("Vi bygger videre herfra");
 
 await interaction.editReply({ embeds: [embed] });
 ```

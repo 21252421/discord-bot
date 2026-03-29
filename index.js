@@ -58,7 +58,7 @@ const celle = interaction.options.getString("celle");
 const tid = interaction.options.getString("tid");
 
 // svar hurtigt (fixer din fejl!)
-await interaction.reply(`🚓 ${celle} er sat i celle i ${tid}`);
+await interaction.reply("🚓 " + celle + " er sat i celle i " + tid);
 ```
 
 }

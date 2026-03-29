@@ -1,3 +1,34 @@
+const { REST } = require('@discordjs/rest');
+const { Routes, SlashCommandBuilder } = require('discord.js');
+
+const commands = [
+new SlashCommandBuilder()
+.setName('celle')
+.setDescription('Start en celle nedtælling')
+.addStringOption(o =>
+o.setName('celle').setDescription('Celle').setRequired(true)
+)
+.addStringOption(o =>
+o.setName('tid').setDescription('Tid').setRequired(true)
+)
+].map(cmd => cmd.toJSON());
+
+const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
+(async () => {
+try {
+console.log("🔄 Register commands...");
+await rest.put(
+Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+{ body: commands }
+);
+console.log("✅ Commands opdateret");
+} catch (err) {
+console.log(err);
+}
+})();
+
+
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 
 const client = new Client({

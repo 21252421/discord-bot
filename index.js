@@ -57,16 +57,6 @@ function parseDuration(input) {
   return totalMs;
 }
 
-function formatRemaining(ms) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${days}d ${hours}h ${minutes}m ${seconds}s`;
-}
-
 function derivePlacement(cellName) {
   const firstLetter = cellName.trim().charAt(0).toUpperCase();
   if (!firstLetter.match(/[A-ZÆØÅ]/i)) return 'Ukendt placering';
@@ -74,8 +64,6 @@ function derivePlacement(cellName) {
 }
 
 function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, expired = false }) {
-  const now = Date.now();
-  const remaining = endTimeMs - now;
   const relativeEnd = `<t:${Math.floor(endTimeMs / 1000)}:R>`;
   const absoluteEnd = `<t:${Math.floor(endTimeMs / 1000)}:f>`;
 
@@ -87,7 +75,7 @@ function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, e
       { name: 'Placering', value: derivePlacement(cellName), inline: true },
       {
         name: 'Tid tilbage',
-        value: expired ? `❌ Udløbet (${absoluteEnd})` : `${formatRemaining(remaining)}\nUdløber ${relativeEnd}`,
+        value: expired ? `❌ Udløbet (${absoluteEnd})` : `${relativeEnd}\nUdløber ${absoluteEnd}`,
         inline: false,
       },
       { name: 'Noter', value: note || 'Ingen noter', inline: false },
@@ -207,53 +195,34 @@ client.on('interactionCreate', async (interaction) => {
   });
 
   const key = `${message.channelId}:${message.id}`;
-  const interval = setInterval(async () => {
-    const remaining = endTimeMs - Date.now();
-
+  const timeout = setTimeout(async () => {
     try {
-      if (remaining <= 0) {
-        clearInterval(interval);
-        activeCountdowns.delete(key);
-
-        const expiredEmbed = buildCountdownEmbed({
-          cellName,
-          note,
-          imageUrl,
-          createdBy: interaction.user.username,
-          endTimeMs,
-          expired: true,
-        });
-
-        await message.edit({ embeds: [expiredEmbed] });
-        return;
-      }
-
-      const updatedEmbed = buildCountdownEmbed({
+      const expiredEmbed = buildCountdownEmbed({
         cellName,
         note,
         imageUrl,
         createdBy: interaction.user.username,
         endTimeMs,
+        expired: true,
       });
-
-      await message.edit({ embeds: [updatedEmbed] });
+      await message.edit({ embeds: [expiredEmbed] });
     } catch (error) {
-      console.error('Fejl ved opdatering af nedtælling:', error.message);
-      clearInterval(interval);
+      console.error('Fejl ved udløb-opdatering:', error.message);
+    } finally {
       activeCountdowns.delete(key);
     }
-  }, 1000);
+  }, durationMs);
 
-  activeCountdowns.set(key, interval);
+  activeCountdowns.set(key, timeout);
 });
 
 process.on('SIGINT', () => {
-  for (const interval of activeCountdowns.values()) clearInterval(interval);
+  for (const timeout of activeCountdowns.values()) clearTimeout(timeout);
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  for (const interval of activeCountdowns.values()) clearInterval(interval);
+  for (const timeout of activeCountdowns.values()) clearTimeout(timeout);
   process.exit(0);
 });
 

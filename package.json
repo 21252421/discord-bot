@@ -1,7 +1,7 @@
 {
   "name": "discord-bot",
   "version": "1.0.0",
-  "description": "Discord bot hosted by Blamii",
+  "description": "Discord bot hosted on Railway",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

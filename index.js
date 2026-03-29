@@ -1,32 +1,14 @@
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, REST, Routes } = require("discord.js");
 
+// ===== ENV =====
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+
+// ===== CLIENT =====
 const client = new Client({
 intents: [GatewayIntentBits.Guilds]
 });
-
-// ===== COMMAND REGISTER =====
-const commands = [
-new SlashCommandBuilder()
-.setName("celle")
-.setDescription("Start celle nedtælling")
-.addStringOption(o => o.setName("celle").setDescription("Celle").setRequired(true))
-.addStringOption(o => o.setName("tid").setDescription("Tid fx 1h").setRequired(true))
-].map(cmd => cmd.toJSON());
-
-const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
-
-(async () => {
-try {
-console.log("Register commands...");
-await rest.put(
-Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-{ body: commands }
-);
-console.log("Commands opdateret");
-} catch (err) {
-console.log(err);
-}
-})();
 
 // ===== TIME =====
 function parseTime(str) {
@@ -56,17 +38,16 @@ if (!interaction.isChatInputCommand()) return;
 if (interaction.commandName !== "celle") return;
 
 try {
-await interaction.deferReply();
+// 🔥 SVAR MED DET SAMME (INGEN THINKING BUG)
+await interaction.reply("⏳ Starter...");
 
 ```
 const cell = interaction.options.getString("celle") || "ukendt";
 const timeStr = interaction.options.getString("tid") || "1m";
 
 const ms = parseTime(timeStr);
-
 if (!ms) {
-  await interaction.editReply("❌ Ugyldig tid");
-  return;
+  return interaction.editReply("❌ Ugyldig tid");
 }
 
 const end = Date.now() + ms;
@@ -80,7 +61,7 @@ const embed = new EmbedBuilder()
   ])
   .setFooter({ text: "Bot virker 🔥" });
 
-const msg = await interaction.editReply({ embeds: [embed] });
+const msg = await interaction.editReply({ content: "", embeds: [embed] });
 
 const interval = setInterval(async () => {
   try {
@@ -113,22 +94,39 @@ const interval = setInterval(async () => {
 ```
 
 } catch (err) {
-console.log("COMMAND CRASH:", err);
-
-```
-try {
-  if (interaction.deferred) {
-    await interaction.editReply("❌ Fejl");
-  }
-} catch {}
-```
-
+console.log("COMMAND ERROR:", err);
 }
 });
 
-// ===== READY =====
-client.once("ready", () => {
+// ===== READY + REGISTER =====
+client.once("clientReady", async () => {
 console.log("BOT ONLINE 🔥");
+
+const commands = [
+new SlashCommandBuilder()
+.setName("celle")
+.setDescription("Start celle nedtælling")
+.addStringOption(o =>
+o.setName("celle").setDescription("Celle").setRequired(true)
+)
+.addStringOption(o =>
+o.setName("tid").setDescription("Tid fx 1h").setRequired(true)
+)
+].map(cmd => cmd.toJSON());
+
+const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+try {
+console.log("Register commands...");
+await rest.put(
+Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+{ body: commands }
+);
+console.log("Commands opdateret");
+} catch (err) {
+console.log(err);
+}
 });
 
-client.login(process.env.TOKEN);
+// ===== START =====
+client.login(TOKEN);

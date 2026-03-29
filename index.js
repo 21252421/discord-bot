@@ -11,18 +11,6 @@ const client = new Client({
 intents: [GatewayIntentBits.Guilds]
 });
 
-// ===== FIND PLACERING =====
-function getPlacering(celle) {
-const c = celle.toLowerCase();
-
-if (c.startsWith("apre37") || c.includes("apre3")) return "Hønsene (Portal)";
-if (c.startsWith("b1671")) return "Bag minen";
-if (c.startsWith("b1662")) return "Over vagtstue";
-if (c.includes("portal 4")) return "Portal 4";
-
-return "Ukendt";
-}
-
 // ===== FARVE =====
 function getColor(celle) {
 if (celle.toUpperCase().startsWith("A")) return 0x00ff00; // grøn
@@ -73,11 +61,11 @@ const interval = setInterval(async () => {
     .setColor(getColor(celle))
     .addFields(
       { name: "Celle", value: celle, inline: true },
-      { name: "Placering", value: getPlacering(celle), inline: true },
+      { name: "Placering", value: "Ukendt", inline: true },
       { name: "Tid tilbage", value: formatTime(remaining), inline: false },
       { name: "Noter", value: "Ingen noter", inline: false }
     )
-    .setFooter({ text: `Oprettet af: ${interaction.user.username}` })
+    .setFooter({ text: "Oprettet af: " + interaction.user.username })
     .setTimestamp();
 
   await interaction.editReply({ embeds: [embed] });

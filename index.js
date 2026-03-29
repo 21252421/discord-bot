@@ -1,89 +1,42 @@
-const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
+const { REST, Routes, SlashCommandBuilder } = require("discord.js");
 
-const client = new Client({
-intents: [GatewayIntentBits.Guilds]
-});
+// 🔴 UDFYLD DISSE
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = "1487783573736919040";
+const GUILD_ID = "884411109426200606";
 
-function getColor(celle) {
-if (!celle) return 0xffffff;
-const c = celle.toUpperCase();
-if (c.startsWith("A")) return 0x00ff00;
-if (c.startsWith("B")) return 0x00ffff;
-if (c.startsWith("C")) return 0xff0000;
-return 0xffffff;
-}
+const commands = [
+new SlashCommandBuilder()
+.setName("celle")
+.setDescription("Start en celle nedtælling")
+.addStringOption(option =>
+option.setName("celle")
+.setDescription("Celle navn (fx b20)")
+.setRequired(true)
+)
+.addStringOption(option =>
+option.setName("tid")
+.setDescription("Tid (fx 1h, 30m)")
+.setRequired(true)
+)
+].map(command => command.toJSON());
 
-function formatTime(ms) {
-const total = Math.max(0, Math.floor(ms / 1000));
-const h = Math.floor(total / 3600);
-const m = Math.floor((total % 3600) / 60);
-const s = total % 60;
-return `${h}h ${m}m ${s}s`;
-}
+const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-client.on("interactionCreate", async interaction => {
-if (!interaction.isChatInputCommand()) return;
-if (interaction.commandName !== "celle") return;
-
+(async () => {
 try {
-// 🔥 SAFE HENTNING
-const celle = interaction.options.getString("celle") || "ukendt";
-const tid = interaction.options.getString("tid") || "1m";
+console.log("🔄 Opdaterer commands...");
 
 ```
-let duration = 60000; // default 1 min
+await rest.put(
+  Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+  { body: commands }
+);
 
-const hours = tid.match(/(\d+)h/);
-const minutes = tid.match(/(\d+)m/);
-
-if (hours) duration += parseInt(hours[1]) * 3600000;
-if (minutes) duration += parseInt(minutes[1]) * 60000;
-
-const endTime = Date.now() + duration;
-
-await interaction.reply("⏳ Starter countdown...");
-
-const interval = setInterval(async () => {
-  try {
-    const remaining = endTime - Date.now();
-
-    if (remaining <= 0) {
-      clearInterval(interval);
-      return interaction.editReply("⛓️ Personen er løsladt!");
-    }
-
-    const embed = new EmbedBuilder()
-      .setTitle("⏳ Celle Nedtælling")
-      .setColor(getColor(celle))
-      .addFields(
-        { name: "Celle", value: celle, inline: true },
-        { name: "Tid tilbage", value: formatTime(remaining), inline: false }
-      )
-      .setFooter({ text: "Oprettet af: " + interaction.user.username });
-
-    await interaction.editReply({ embeds: [embed] });
-
-  } catch (err) {
-    console.error("Interval fejl:", err);
-    clearInterval(interval);
-  }
-}, 1000);
+console.log("✅ Commands opdateret!");
 ```
 
-} catch (err) {
-console.error("FEJL:", err);
-
-```
-if (!interaction.replied) {
-  await interaction.reply("❌ Der skete en fejl (tjek logs)");
+} catch (error) {
+console.error(error);
 }
-```
-
-}
-});
-
-client.once("clientReady", () => {
-console.log(`Logged in as ${client.user.tag}`);
-});
-
-client.login(process.env.TOKEN);
+})();

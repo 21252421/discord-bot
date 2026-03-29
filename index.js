@@ -18,7 +18,7 @@ intents: [GatewayIntentBits.Guilds]
 });
 
 // Når botten starter
-client.once("ready", () => {
+client.once("clientReady", () => {
 console.log(`Logged in as ${client.user.tag}`);
 });
 

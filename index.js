@@ -5,45 +5,35 @@ intents: [GatewayIntentBits.Guilds]
 });
 
 client.on("interactionCreate", async interaction => {
-try {
 if (!interaction.isChatInputCommand()) return;
 
-```
 if (interaction.commandName === "celle") {
 
-  // SAFE værdier
-  let celle = "ukendt";
-  let tid = "1m";
+```
+// 🔥 SVAR MED DET SAMME (VIGTIGT)
+await interaction.reply("✅ Command modtaget");
 
-  try {
-    celle = interaction.options.getString("celle") || "ukendt";
-    tid = interaction.options.getString("tid") || "1m";
-  } catch {}
+try {
+  const celle = interaction.options.getString("celle");
+  const tid = interaction.options.getString("tid");
 
-  await interaction.reply("⏳ Starter...");
+  console.log("CELLE:", celle);
+  console.log("TID:", tid);
 
   const embed = new EmbedBuilder()
-    .setTitle("⏳ Celle")
+    .setTitle("TEST")
     .setColor(0x00ff00)
     .addFields(
-      { name: "Celle", value: celle },
-      { name: "Tid", value: tid }
-    )
-    .setFooter({ text: "Bot virker 100%" });
+      { name: "Celle", value: celle || "IKKE FUNDET" },
+      { name: "Tid", value: tid || "IKKE FUNDET" }
+    );
 
   await interaction.editReply({ embeds: [embed] });
-}
-```
 
 } catch (err) {
-console.error("FEJL:", err);
-
-```
-try {
-  if (!interaction.replied) {
-    await interaction.reply("❌ Crash fanget");
-  }
-} catch {}
+  console.error("FEJL:", err);
+  await interaction.editReply("❌ FEJL - tjek logs");
+}
 ```
 
 }

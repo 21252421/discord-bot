@@ -58,9 +58,121 @@ function parseDuration(input) {
 }
 
 function derivePlacement(cellName) {
-  const firstLetter = cellName.trim().charAt(0).toUpperCase();
-  if (!firstLetter.match(/[A-ZÆØÅ]/i)) return 'Ukendt placering';
-  return `${firstLetter} Celle`;
+  const normalized = cellName.trim().toLowerCase().replace(/\s+/g, '');
+  const match = normalized.match(/^([a-z]+)(\d+)$/);
+  if (!match) return 'Ukendt placering';
+
+  const [, prefix, rawNumber] = match;
+  const number = Number.parseInt(rawNumber, 10);
+  const inRange = (min, max) => number >= min && number <= max;
+
+  // A blok
+  if (prefix === 'tpre') {
+    if (inRange(1, 19)) return 'Titan gang';
+    if (inRange(20, 24)) return 'VV side';
+    if (inRange(25, 31)) return 'Casino side';
+  }
+  if (prefix === 'fc') {
+    if (inRange(1, 50)) return 'Gederne Nedre (Portal)';
+    if (inRange(66, 105)) return 'Gederne Øvre (Portal)';
+    if (inRange(51, 53) || inRange(300, 325)) return 'A+';
+  }
+  if (prefix === 'apre') {
+    if (inRange(1, 36)) return 'Gul stue (Portal)';
+    if (inRange(37, 74)) return 'Hønsene (Portal)';
+    if (inRange(75, 110)) return 'Kakerlakkene (Portal)';
+    if (inRange(111, 150)) return 'Kyllingerne (Portal)';
+    if (inRange(151, 230)) return 'Aberne (Portal)';
+    if (inRange(231, 260)) return 'Æslerne (Portal)';
+    if (inRange(261, 310)) return 'Ænderne (Portal)';
+    if (inRange(311, 346)) return 'Ulvene (Portal)';
+    if (inRange(347, 382)) return 'Rød stue (Portal)';
+    if (inRange(383, 392)) return 'Bjørnene - 1. casino gang';
+    if (inRange(393, 402)) return 'Pandaerne - 2. casino gang';
+    if (inRange(403, 412)) return 'Koalaerne - 3. casino gang';
+    if (inRange(413, 422)) return 'Isbjørnene - 3. vv gang';
+    if (inRange(423, 432)) return 'Bubbibjørnene - 2. vv gang';
+    if (inRange(433, 442)) return 'Hulebjørnene - 1. vv gang';
+    if (inRange(443, 454)) return 'Security gang';
+    if (number === 25086 || number === 25333) return 'BO celler';
+  }
+  if (prefix === 'a') {
+    if (inRange(1, 144)) return 'Grisene (Portal)';
+    if (inRange(200, 343)) return 'Koalaerne (Portal)';
+    if (inRange(400, 543)) return 'Pelikanerne (Portal)';
+    if (inRange(600, 671)) return 'Bacon (Portal)';
+    if (inRange(800, 935)) return 'Bamserne (Portal)';
+    if (inRange(1000, 1167)) return 'Flodhestene (Portal)';
+    if (inRange(1200, 1347)) return 'Skilpadderne (Portal)';
+    if (inRange(1400, 1567)) return 'Tigerene (Portal)';
+    if (inRange(1600, 1743)) return 'Slangerne (Portal)';
+    if (inRange(1744, 1751)) return 'Midter celler';
+  }
+
+  // B blok
+  if (prefix === 'bpre') {
+    if (inRange(1, 40)) return 'Portal under Sort cellegang';
+    if (inRange(101, 230)) return 'Portal under Hvid cellegang';
+    if (inRange(231, 337)) return 'Portal 1';
+    if (inRange(540, 637)) return 'Portal 3';
+    if (inRange(638, 766)) return 'Portal 4';
+    if (inRange(767, 831)) return 'Portal 5';
+    if (inRange(832, 928)) return 'Portal 6';
+    if (inRange(929, 1025)) return 'Portal 7';
+  }
+  if (prefix === 'fcb') {
+    if (inRange(1, 96)) return 'Fcoin celler';
+  }
+  if (prefix === 'b') {
+    if (inRange(1, 272)) return 'Sort portal';
+    if (inRange(326, 491)) return 'Hvid celle gang';
+    if (inRange(495, 718)) return 'Portal 1';
+    if (inRange(1167, 1437)) return 'Portal 2';
+    if (inRange(1438, 1661)) return 'Portal 8';
+    if (inRange(1662, 1670)) return 'Over vagt stue';
+    if (inRange(1671, 1717)) return 'Bag minerne';
+    if (inRange(1718, 1737)) return 'Bag væggen i sort portal';
+    if (inRange(1741, 1764)) return 'BO Celler';
+  }
+  if (prefix === 'bk') {
+    if (inRange(1, 30)) return 'Kloak-Celler';
+  }
+
+  // C blok
+  if (prefix === 'cpre') {
+    if (inRange(1, 384)) return 'MadChemist Portal';
+  }
+  if (prefix === 'c') {
+    if (inRange(1, 96)) return 'Cellegang 1';
+    if (inRange(97, 192)) return 'Cellegang 2';
+    if (inRange(193, 288)) return 'Cellegang 3';
+    if (inRange(289, 384)) return 'Cellegang 4';
+    if (inRange(385, 480)) return 'Cellegang 5';
+    if (inRange(481, 576)) return 'Cellegang 6';
+    if (inRange(578, 673)) return 'Cellegang 7';
+    if (inRange(1250, 1537)) return 'Gamle Normal Portal';
+    if (inRange(1826, 2114)) return 'Nye Normal Portal';
+    if (inRange(2133, 2156)) return 'Casino Kloak';
+  }
+
+  return 'Ukendt placering';
+}
+
+function getBlock(cellName) {
+  const normalized = cellName.trim().toLowerCase().replace(/\s+/g, '');
+
+  if (/^(b|bpre|fcb|bk)\d+$/.test(normalized)) return 'B';
+  if (/^(c|cpre)\d+$/.test(normalized)) return 'C';
+  if (/^(a|apre|tpre|fc)\d+$/.test(normalized)) return 'A';
+  return null;
+}
+
+function getEmbedColor(cellName, expired) {
+  const block = getBlock(cellName);
+  if (expired) return 0x992d22;
+  if (block === 'C') return 0xed4245; // rød
+  if (block === 'B') return 0x00ffff; // cyan
+  return 0x32cd32; // lime (default/A)
 }
 
 function formatRemaining(ms) {
@@ -69,8 +181,12 @@ function formatRemaining(ms) {
   const hours = Math.floor((totalSeconds % 86400) / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-
-  return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0 || days > 0) parts.push(`${hours}h`);
+  if (minutes > 0 || hours > 0 || days > 0) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  return parts.join(' ');
 }
 
 function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, expired = false }) {
@@ -80,7 +196,7 @@ function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, e
 
   const embed = new EmbedBuilder()
     .setTitle('⏳ Celle Nedtælling')
-    .setColor(expired ? 0xff0000 : 0x00ff66)
+    .setColor(getEmbedColor(cellName, expired))
     .addFields(
       { name: 'Celle', value: cellName, inline: true },
       { name: 'Placering', value: derivePlacement(cellName), inline: true },

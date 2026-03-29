@@ -31,7 +31,7 @@ app.listen(PORT, () => {
 });
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [GatewayIntentBits.Guilds],
 });
 
 const activeCountdowns = new Map();
@@ -155,8 +155,10 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  const member = await interaction.guild.members.fetch(interaction.user.id);
-  const hasRole = member.roles.cache.some((role) => role.name === REQUIRED_ROLE_NAME);
+  const memberRoles = interaction.member?.roles;
+  const hasRole = Array.isArray(memberRoles)
+    ? memberRoles.some((roleId) => interaction.guild.roles.cache.get(roleId)?.name === REQUIRED_ROLE_NAME)
+    : memberRoles?.cache?.some((role) => role.name === REQUIRED_ROLE_NAME);
 
   if (!hasRole) {
     await interaction.reply({

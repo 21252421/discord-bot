@@ -2,6 +2,7 @@ const {
   Client,
   EmbedBuilder,
   GatewayIntentBits,
+  Partials,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -34,7 +35,8 @@ app.listen(PORT, () => {
 });
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+  partials: [Partials.Message, Partials.Channel],
 });
 
 const DELETE_AFTER_EXPIRED_MS = 60 * 60 * 1000; // 1 time
@@ -586,6 +588,28 @@ client.on('interactionCreate', async (interaction) => {
   const timeout = setTimeout(tick, firstDelay);
   const state = activeCountdowns.get(key);
   if (state) state.tickTimeout = timeout;
+});
+
+client.on('messageDelete', async (message) => {
+  const key = `${message.channelId}:${message.id}`;
+  if (!trackedCells.has(key)) return;
+
+  trackedCells.delete(key);
+  persistTrackingState();
+  clearCountdownTimers(key);
+
+  try {
+    if (message.channel?.isTextBased()) {
+      await refreshTrackingEmbed(message.channel);
+    } else if (message.channelId) {
+      const channel = await client.channels.fetch(message.channelId);
+      if (channel?.isTextBased()) {
+        await refreshTrackingEmbed(channel);
+      }
+    }
+  } catch (error) {
+    console.error('Kunne ikke opdatere tracking efter manuel sletning:', error.message);
+  }
 });
 
 process.on('SIGINT', () => {

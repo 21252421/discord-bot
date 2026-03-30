@@ -332,22 +332,11 @@ function sendExpiryReminder({ message, roleId, cellName, endTimeMs, label }) {
   });
 }
 
-async function editCountdownMessage(channel, messageId, embed) {
-  try {
-    const liveMessage = await channel.messages.fetch(messageId);
-    await liveMessage.edit({ embeds: [embed] });
-    return true;
-  } catch (error) {
-    console.error('Kunne ikke edit countdown-besked:', error.message);
-    return false;
-  }
-}
-
 function clearCountdownTimers(key) {
   const timers = activeCountdowns.get(key);
   if (!timers) return;
 
-  if (timers.tickInterval) clearInterval(timers.tickInterval);
+  if (timers.tickTimeout) clearTimeout(timers.tickTimeout);
   if (timers.deleteTimeout) clearTimeout(timers.deleteTimeout);
   for (const reminderTimeout of timers.reminderTimeouts) clearTimeout(reminderTimeout);
   activeCountdowns.delete(key);
@@ -497,11 +486,10 @@ client.on('interactionCreate', async (interaction) => {
   await refreshTrackingEmbed(message.channel);
 
   activeCountdowns.set(key, {
-    tickInterval: null,
+    tickTimeout: null,
     deleteTimeout: null,
     reminderTimeouts: [],
     lastReminderMessage: null,
-    lastRenderedSecond: null,
   });
 
   const scheduleReminder = (beforeMs, label) => {
@@ -542,13 +530,9 @@ client.on('interactionCreate', async (interaction) => {
 
   const tick = async () => {
     const remainingMs = endTimeMs - Date.now();
-    const remainingSecond = Math.max(0, Math.floor(remainingMs / 1000));
-    const state = activeCountdowns.get(key);
-    if (!state) return;
 
     try {
       if (remainingMs > 0) {
-        if (state.lastRenderedSecond === remainingSecond) return;
         const activeEmbed = buildCountdownEmbed({
           cellName,
           note,
@@ -557,8 +541,12 @@ client.on('interactionCreate', async (interaction) => {
           endTimeMs,
           createdAtMs,
         });
-        const updated = await editCountdownMessage(message.channel, message.id, activeEmbed);
-        if (updated) state.lastRenderedSecond = remainingSecond;
+        await message.edit({ embeds: [activeEmbed] });
+
+        const nextDelay = 1000 - (Date.now() % 1000);
+        const nextTimeout = setTimeout(tick, nextDelay);
+        const state = activeCountdowns.get(key);
+        if (state) state.tickTimeout = nextTimeout;
         return;
       }
 
@@ -573,7 +561,7 @@ client.on('interactionCreate', async (interaction) => {
         deleteAtMs,
         expired: true,
       });
-      await editCountdownMessage(message.channel, message.id, expiredEmbed);
+      await message.edit({ embeds: [expiredEmbed] });
 
       trackedCells.delete(key);
       persistTrackingState();
@@ -602,14 +590,21 @@ client.on('interactionCreate', async (interaction) => {
       const state = activeCountdowns.get(key);
       if (state) {
         state.deleteTimeout = deleteTimeout;
+        state.tickTimeout = null;
       }
     } catch (error) {
       console.error('Fejl ved nedtælling-opdatering:', error.message);
+      const nextDelay = 1000 - (Date.now() % 1000);
+      const retryTimeout = setTimeout(tick, nextDelay);
+      const state = activeCountdowns.get(key);
+      if (state) state.tickTimeout = retryTimeout;
     }
   };
+
+  const firstDelay = 1000 - (Date.now() % 1000);
+  const timeout = setTimeout(tick, firstDelay);
   const state = activeCountdowns.get(key);
-  if (state) state.tickInterval = setInterval(tick, 1000);
-  await tick();
+  if (state) state.tickTimeout = timeout;
 });
 
 client.on('messageDelete', async (message) => {

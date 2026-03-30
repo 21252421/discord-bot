@@ -294,27 +294,21 @@ function buildTrackingEmbed(channelId) {
     .setFooter({ text: `Der er oprettet tracking på ${sortedEntries.length} celler.` });
 }
 
-async function getOrCreateTrackerMessage(channel) {
-  const savedMessageId = trackerMessageIdsByChannel.get(channel.id);
-  if (savedMessageId) {
-    try {
-      const existingMessage = await channel.messages.fetch(savedMessageId);
-      return existingMessage;
-    } catch {
-      trackerMessageIdsByChannel.delete(channel.id);
-    }
-  }
-
-  const created = await channel.send({ embeds: [buildTrackingEmbed(channel.id)] });
-  trackerMessageIdsByChannel.set(channel.id, created.id);
-  persistTrackingState();
-  return created;
-}
-
 async function refreshTrackingEmbed(channel) {
   try {
-    const trackerMessage = await getOrCreateTrackerMessage(channel);
-    await trackerMessage.edit({ embeds: [buildTrackingEmbed(channel.id)] });
+    const savedMessageId = trackerMessageIdsByChannel.get(channel.id);
+    if (savedMessageId) {
+      try {
+        const oldMessage = await channel.messages.fetch(savedMessageId);
+        await oldMessage.delete();
+      } catch {
+        // Ignorer hvis gammel tracker-besked ikke findes længere.
+      }
+    }
+
+    const trackerMessage = await channel.send({ embeds: [buildTrackingEmbed(channel.id)] });
+    trackerMessageIdsByChannel.set(channel.id, trackerMessage.id);
+    persistTrackingState();
   } catch (error) {
     console.error('Kunne ikke opdatere tracking-embed:', error.message);
   }

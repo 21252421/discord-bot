@@ -373,20 +373,27 @@ client.on('interactionCreate', async (interaction) => {
   });
 
   const key = `${message.channelId}:${message.id}`;
-  activeCountdowns.set(key, { tickTimeout: null, deleteTimeout: null, reminderTimeouts: [] });
+  activeCountdowns.set(key, {
+    tickTimeout: null,
+    deleteTimeout: null,
+    reminderTimeouts: [],
+    reminderMessages: [],
+  });
 
   const scheduleReminder = (beforeMs, label) => {
     if (!reminderRole || durationMs <= beforeMs) return;
     const delay = durationMs - beforeMs;
     const reminderTimeout = setTimeout(async () => {
       try {
-        await sendExpiryReminder({
+        const reminderMessage = await sendExpiryReminder({
           message,
           roleId: reminderRole.id,
           cellName,
           endTimeMs,
           label,
         });
+        const current = activeCountdowns.get(key);
+        if (current && reminderMessage) current.reminderMessages.push(reminderMessage);
       } catch (error) {
         console.error(`Fejl ved ${label}-påmindelse:`, error.message);
       }
@@ -396,8 +403,8 @@ client.on('interactionCreate', async (interaction) => {
     if (state) state.reminderTimeouts.push(reminderTimeout);
   };
 
-  scheduleReminder(60 * 60 * 1000, '01:00:00');
-  scheduleReminder(15 * 60 * 1000, '00:15:00');
+  scheduleReminder(60 * 60 * 1000, '1 time');
+  scheduleReminder(15 * 60 * 1000, '15 min');
 
   const tick = async () => {
     const remainingMs = endTimeMs - Date.now();
@@ -433,6 +440,20 @@ client.on('interactionCreate', async (interaction) => {
         expired: true,
       });
       await message.edit({ embeds: [expiredEmbed] });
+
+      const current = activeCountdowns.get(key);
+      if (current?.reminderMessages?.length) {
+        await Promise.all(
+          current.reminderMessages.map(async (reminderMessage) => {
+            try {
+              await reminderMessage.delete();
+            } catch (error) {
+              console.error('Kunne ikke slette påmindelsesbesked:', error.message);
+            }
+          }),
+        );
+        current.reminderMessages = [];
+      }
 
       const deleteTimeout = setTimeout(async () => {
         try {

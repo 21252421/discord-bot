@@ -44,7 +44,6 @@ const activeCountdowns = new Map();
 const trackedCells = new Map();
 const trackerMessageIdsByChannel = new Map();
 const restrictedChannelIds = new Set();
-let schedulerLastSecond = -1;
 
 function loadTrackingState() {
   try {
@@ -337,31 +336,10 @@ function clearCountdownTimers(key) {
   const timers = activeCountdowns.get(key);
   if (!timers) return;
 
+  if (timers.tickInterval) clearInterval(timers.tickInterval);
   if (timers.deleteTimeout) clearTimeout(timers.deleteTimeout);
   for (const reminderTimeout of timers.reminderTimeouts) clearTimeout(reminderTimeout);
   activeCountdowns.delete(key);
-}
-
-async function runCountdownSchedulerTick() {
-  const secondNow = Math.floor(Date.now() / 1000);
-  if (secondNow === schedulerLastSecond) return;
-  schedulerLastSecond = secondNow;
-
-  for (const [key, timers] of activeCountdowns.entries()) {
-    if (typeof timers.onTick !== 'function') continue;
-    if (timers.isTicking) continue;
-
-    timers.isTicking = true;
-    timers
-      .onTick()
-      .catch((error) => {
-        console.error('Tick fejl:', error.message);
-      })
-      .finally(() => {
-        const state = activeCountdowns.get(key);
-        if (state) state.isTicking = false;
-      });
-  }
 }
 
 async function registerSlashCommand() {
@@ -405,11 +383,6 @@ async function registerSlashCommand() {
 }
 
 loadTrackingState();
-setInterval(() => {
-  runCountdownSchedulerTick().catch((error) => {
-    console.error('Countdown scheduler fejl:', error.message);
-  });
-}, 200);
 
 client.once('ready', async () => {
   console.log(`Logget ind som ${client.user.tag}`);
@@ -513,12 +486,11 @@ client.on('interactionCreate', async (interaction) => {
   await refreshTrackingEmbed(message.channel);
 
   activeCountdowns.set(key, {
+    tickInterval: null,
     deleteTimeout: null,
     reminderTimeouts: [],
     lastReminderMessage: null,
     lastRenderedSecond: null,
-    onTick: null,
-    isTicking: false,
   });
 
   const scheduleReminder = (beforeMs, label) => {
@@ -625,7 +597,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   };
   const state = activeCountdowns.get(key);
-  if (state) state.onTick = tick;
+  if (state) state.tickInterval = setInterval(tick, 1000);
   await tick();
 });
 

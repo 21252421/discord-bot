@@ -34,6 +34,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
+const DELETE_AFTER_EXPIRED_MS = 60 * 60 * 1000; // 1 time
 const activeCountdowns = new Map();
 
 function parseDuration(input) {
@@ -115,8 +116,8 @@ function derivePlacement(cellName) {
     if (inRange(101, 230)) return 'Portal under Hvid cellegang';
     if (inRange(231, 337)) return 'Portal 1';
     if (inRange(540, 637)) return 'Portal 3';
-    if (inRange(638, 734)) return 'Portal 4';
-    if (inRange(735, 831)) return 'Portal 5';
+    if (inRange(638, 766)) return 'Portal 4';
+    if (inRange(767, 831)) return 'Portal 5';
     if (inRange(832, 928)) return 'Portal 6';
     if (inRange(929, 1025)) return 'Portal 7';
   }
@@ -189,10 +190,22 @@ function formatRemaining(ms) {
   return parts.join(' ');
 }
 
-function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, expired = false }) {
+function buildCountdownEmbed({
+  cellName,
+  note,
+  imageUrl,
+  createdBy,
+  endTimeMs,
+  createdAtMs,
+  deleteAtMs = null,
+  expired = false,
+}) {
   const relativeEnd = `<t:${Math.floor(endTimeMs / 1000)}:R>`;
   const absoluteEnd = `<t:${Math.floor(endTimeMs / 1000)}:f>`;
   const remaining = endTimeMs - Date.now();
+  const deleteAtText = deleteAtMs
+    ? `\nSlettes automatisk <t:${Math.floor(deleteAtMs / 1000)}:R> (<t:${Math.floor(deleteAtMs / 1000)}:f>)`
+    : '';
 
   const embed = new EmbedBuilder()
     .setTitle('⏳ Celle Nedtælling')
@@ -204,19 +217,46 @@ function buildCountdownEmbed({ cellName, note, imageUrl, createdBy, endTimeMs, e
         name: 'Tid tilbage',
         value: expired
           ? `❌ Udløbet (${absoluteEnd})`
-          : `${formatRemaining(remaining)}\nUdløber ${relativeEnd} (${absoluteEnd})`,
+          : `${formatRemaining(remaining)}\nUdløber ${relativeEnd} (${absoluteEnd})${deleteAtText}`,
         inline: false,
       },
       { name: 'Noter', value: note || 'Ingen noter', inline: false },
     )
-    .setFooter({ text: `Oprettet af: ${createdBy}` })
-    .setTimestamp();
+    .setFooter({
+      text:
+        expired && deleteAtMs
+          ? `Oprettet af: ${createdBy} • Slettes ${new Date(deleteAtMs).toLocaleTimeString('da-DK', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}`
+          : `Oprettet af: ${createdBy}`,
+    })
+    .setTimestamp(createdAtMs);
 
   if (imageUrl) {
     embed.setImage(imageUrl);
   }
 
   return embed;
+}
+
+function sendExpiryReminder({ message, roleId, cellName, endTimeMs, label }) {
+  return message.channel.send({
+    content: `<@&${roleId}> Cellen **${cellName}** udløber om **${label}** (udløber <t:${Math.floor(
+      endTimeMs / 1000,
+    )}:t>).`,
+    allowedMentions: { roles: [roleId] },
+  });
+}
+
+function clearCountdownTimers(key) {
+  const timers = activeCountdowns.get(key);
+  if (!timers) return;
+
+  if (timers.tickTimeout) clearTimeout(timers.tickTimeout);
+  if (timers.deleteTimeout) clearTimeout(timers.deleteTimeout);
+  for (const reminderTimeout of timers.reminderTimeouts) clearTimeout(reminderTimeout);
+  activeCountdowns.delete(key);
 }
 
 async function registerSlashCommand() {
@@ -293,6 +333,9 @@ client.on('interactionCreate', async (interaction) => {
   const timeInput = interaction.options.getString('tid', true);
   const note = interaction.options.getString('note') || 'Ingen noter';
   const imageAttachment = interaction.options.getAttachment('billede');
+  const reminderRole = interaction.guild.roles.cache.find(
+    (role) => role.name.toLowerCase() === REQUIRED_ROLE_NAME.toLowerCase(),
+  );
 
   if (imageAttachment && !imageAttachment.contentType?.startsWith('image/')) {
     await interaction.reply({
@@ -312,6 +355,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   const endTimeMs = Date.now() + durationMs;
+  const createdAtMs = Date.now();
   const imageUrl = imageAttachment?.url || null;
 
   const initialEmbed = buildCountdownEmbed({
@@ -320,6 +364,7 @@ client.on('interactionCreate', async (interaction) => {
     imageUrl,
     createdBy: interaction.user.username,
     endTimeMs,
+    createdAtMs,
   });
 
   const message = await interaction.reply({
@@ -328,6 +373,32 @@ client.on('interactionCreate', async (interaction) => {
   });
 
   const key = `${message.channelId}:${message.id}`;
+  activeCountdowns.set(key, { tickTimeout: null, deleteTimeout: null, reminderTimeouts: [] });
+
+  const scheduleReminder = (beforeMs, label) => {
+    if (!reminderRole || durationMs <= beforeMs) return;
+    const delay = durationMs - beforeMs;
+    const reminderTimeout = setTimeout(async () => {
+      try {
+        await sendExpiryReminder({
+          message,
+          roleId: reminderRole.id,
+          cellName,
+          endTimeMs,
+          label,
+        });
+      } catch (error) {
+        console.error(`Fejl ved ${label}-påmindelse:`, error.message);
+      }
+    }, delay);
+
+    const state = activeCountdowns.get(key);
+    if (state) state.reminderTimeouts.push(reminderTimeout);
+  };
+
+  scheduleReminder(60 * 60 * 1000, '01:00:00');
+  scheduleReminder(15 * 60 * 1000, '00:15:00');
+
   const tick = async () => {
     const remainingMs = endTimeMs - Date.now();
 
@@ -339,43 +410,64 @@ client.on('interactionCreate', async (interaction) => {
           imageUrl,
           createdBy: interaction.user.username,
           endTimeMs,
+          createdAtMs,
         });
         await message.edit({ embeds: [activeEmbed] });
 
         const nextDelay = 1000 - (Date.now() % 1000);
         const nextTimeout = setTimeout(tick, nextDelay);
-        activeCountdowns.set(key, nextTimeout);
+        const state = activeCountdowns.get(key);
+        if (state) state.tickTimeout = nextTimeout;
         return;
       }
 
+      const deleteAtMs = Date.now() + DELETE_AFTER_EXPIRED_MS;
       const expiredEmbed = buildCountdownEmbed({
         cellName,
         note,
         imageUrl,
         createdBy: interaction.user.username,
         endTimeMs,
+        createdAtMs,
+        deleteAtMs,
         expired: true,
       });
       await message.edit({ embeds: [expiredEmbed] });
+
+      const deleteTimeout = setTimeout(async () => {
+        try {
+          await message.delete();
+        } catch (error) {
+          console.error('Kunne ikke slette udløbet besked:', error.message);
+        } finally {
+          clearCountdownTimers(key);
+        }
+      }, DELETE_AFTER_EXPIRED_MS);
+
+      const state = activeCountdowns.get(key);
+      if (state) {
+        state.deleteTimeout = deleteTimeout;
+        state.tickTimeout = null;
+      }
     } catch (error) {
       console.error('Fejl ved nedtælling-opdatering:', error.message);
-    } finally {
-      activeCountdowns.delete(key);
+      clearCountdownTimers(key);
     }
   };
 
   const firstDelay = 1000 - (Date.now() % 1000);
   const timeout = setTimeout(tick, firstDelay);
-  activeCountdowns.set(key, timeout);
+  const state = activeCountdowns.get(key);
+  if (state) state.tickTimeout = timeout;
 });
 
 process.on('SIGINT', () => {
-  for (const timeout of activeCountdowns.values()) clearTimeout(timeout);
+  for (const key of activeCountdowns.keys()) clearCountdownTimers(key);
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  for (const timeout of activeCountdowns.values()) clearTimeout(timeout);
+  for (const key of activeCountdowns.keys()) clearCountdownTimers(key);
   process.exit(0);
 });
 

@@ -347,9 +347,20 @@ async function runCountdownSchedulerTick() {
   if (secondNow === schedulerLastSecond) return;
   schedulerLastSecond = secondNow;
 
-  for (const timers of activeCountdowns.values()) {
+  for (const [key, timers] of activeCountdowns.entries()) {
     if (typeof timers.onTick !== 'function') continue;
-    await timers.onTick();
+    if (timers.isTicking) continue;
+
+    timers.isTicking = true;
+    timers
+      .onTick()
+      .catch((error) => {
+        console.error('Tick fejl:', error.message);
+      })
+      .finally(() => {
+        const state = activeCountdowns.get(key);
+        if (state) state.isTicking = false;
+      });
   }
 }
 
@@ -507,6 +518,7 @@ client.on('interactionCreate', async (interaction) => {
     lastReminderMessage: null,
     lastRenderedSecond: null,
     onTick: null,
+    isTicking: false,
   });
 
   const scheduleReminder = (beforeMs, label) => {

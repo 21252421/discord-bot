@@ -7,12 +7,15 @@ const {
   SlashCommandBuilder,
 } = require('discord.js');
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const PORT = Number(process.env.PORT || 3000);
 const REQUIRED_ROLE_NAME = 'Celler+';
+const TRACKING_STATE_PATH = path.join(__dirname, 'tracking-state.json');
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
   console.error('Mangler miljøvariabler: TOKEN/DISCORD_TOKEN, CLIENT_ID eller GUILD_ID');
@@ -36,6 +39,44 @@ const client = new Client({
 
 const DELETE_AFTER_EXPIRED_MS = 60 * 60 * 1000; // 1 time
 const activeCountdowns = new Map();
+const trackedCells = new Map();
+const trackerMessageIdsByChannel = new Map();
+
+function loadTrackingState() {
+  try {
+    if (!fs.existsSync(TRACKING_STATE_PATH)) return;
+    const parsed = JSON.parse(fs.readFileSync(TRACKING_STATE_PATH, 'utf8'));
+    const now = Date.now();
+
+    if (Array.isArray(parsed.activeCells)) {
+      for (const entry of parsed.activeCells) {
+        if (!entry?.key || !entry?.channelId || !entry?.messageId || !entry?.cellName || !entry?.endTimeMs) continue;
+        if (entry.endTimeMs <= now) continue;
+        trackedCells.set(entry.key, entry);
+      }
+    }
+
+    if (parsed.trackerMessageIdsByChannel && typeof parsed.trackerMessageIdsByChannel === 'object') {
+      for (const [channelId, messageId] of Object.entries(parsed.trackerMessageIdsByChannel)) {
+        if (channelId && messageId) trackerMessageIdsByChannel.set(channelId, messageId);
+      }
+    }
+  } catch (error) {
+    console.error('Kunne ikke læse tracking-state:', error.message);
+  }
+}
+
+function persistTrackingState() {
+  try {
+    const payload = {
+      activeCells: Array.from(trackedCells.values()),
+      trackerMessageIdsByChannel: Object.fromEntries(trackerMessageIdsByChannel.entries()),
+    };
+    fs.writeFileSync(TRACKING_STATE_PATH, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Kunne ikke gemme tracking-state:', error.message);
+  }
+}
 
 function parseDuration(input) {
   if (!input) return 0;
@@ -222,15 +263,7 @@ function buildCountdownEmbed({
       },
       { name: 'Noter', value: note || 'Ingen noter', inline: false },
     )
-    .setFooter({
-      text:
-        expired && deleteAtMs
-          ? `Oprettet af: ${createdBy} • Slettes ${new Date(deleteAtMs).toLocaleTimeString('da-DK', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}`
-          : `Oprettet af: ${createdBy}`,
-    })
+    .setFooter({ text: `Oprettet af: ${createdBy}` })
     .setTimestamp(createdAtMs);
 
   if (imageUrl) {
@@ -238,6 +271,53 @@ function buildCountdownEmbed({
   }
 
   return embed;
+}
+
+function buildTrackingEmbed(channelId) {
+  const now = Date.now();
+  const sortedEntries = Array.from(trackedCells.values())
+    .filter((entry) => entry.channelId === channelId && entry.endTimeMs > now)
+    .sort((a, b) => a.endTimeMs - b.endTimeMs);
+
+  const top10 = sortedEntries.slice(0, 10);
+  const lines = top10.map((entry, index) => {
+    const unix = Math.floor(entry.endTimeMs / 1000);
+    return `${index + 1}. **${entry.cellName}** (udløber <t:${unix}:R> / <t:${unix}:f>) [Klik for at finde celle embed](${entry.messageUrl})`;
+  });
+
+  const description = lines.length > 0 ? lines.join('\n') : 'Ingen aktive celler lige nu.';
+
+  return new EmbedBuilder()
+    .setColor(0x9b59b6)
+    .setTitle('Udløbne celler 1-10')
+    .setDescription(description)
+    .setFooter({ text: `Der er oprettet tracking på ${sortedEntries.length} celler.` });
+}
+
+async function getOrCreateTrackerMessage(channel) {
+  const savedMessageId = trackerMessageIdsByChannel.get(channel.id);
+  if (savedMessageId) {
+    try {
+      const existingMessage = await channel.messages.fetch(savedMessageId);
+      return existingMessage;
+    } catch {
+      trackerMessageIdsByChannel.delete(channel.id);
+    }
+  }
+
+  const created = await channel.send({ embeds: [buildTrackingEmbed(channel.id)] });
+  trackerMessageIdsByChannel.set(channel.id, created.id);
+  persistTrackingState();
+  return created;
+}
+
+async function refreshTrackingEmbed(channel) {
+  try {
+    const trackerMessage = await getOrCreateTrackerMessage(channel);
+    await trackerMessage.edit({ embeds: [buildTrackingEmbed(channel.id)] });
+  } catch (error) {
+    console.error('Kunne ikke opdatere tracking-embed:', error.message);
+  }
 }
 
 function sendExpiryReminder({ message, roleId, cellName, endTimeMs, label }) {
@@ -299,10 +379,27 @@ async function registerSlashCommand() {
   console.log('Slash command /celle registreret (kun én kommando aktiv)');
 }
 
+loadTrackingState();
+
 client.once('ready', async () => {
   console.log(`Logget ind som ${client.user.tag}`);
   try {
     await registerSlashCommand();
+    const channelIds = new Set([
+      ...Array.from(trackerMessageIdsByChannel.keys()),
+      ...Array.from(trackedCells.values()).map((entry) => entry.channelId),
+    ]);
+
+    for (const channelId of channelIds) {
+      try {
+        const channel = await client.channels.fetch(channelId);
+        if (channel?.isTextBased()) {
+          await refreshTrackingEmbed(channel);
+        }
+      } catch (error) {
+        console.error(`Kunne ikke gendanne tracking i kanal ${channelId}:`, error.message);
+      }
+    }
   } catch (error) {
     console.error('Kunne ikke registrere commands:', error);
   }
@@ -373,6 +470,17 @@ client.on('interactionCreate', async (interaction) => {
   });
 
   const key = `${message.channelId}:${message.id}`;
+  trackedCells.set(key, {
+    key,
+    cellName,
+    endTimeMs,
+    channelId: message.channelId,
+    messageId: message.id,
+    messageUrl: message.url,
+  });
+  persistTrackingState();
+  await refreshTrackingEmbed(message.channel);
+
   activeCountdowns.set(key, {
     tickTimeout: null,
     deleteTimeout: null,
@@ -440,6 +548,10 @@ client.on('interactionCreate', async (interaction) => {
         expired: true,
       });
       await message.edit({ embeds: [expiredEmbed] });
+
+      trackedCells.delete(key);
+      persistTrackingState();
+      await refreshTrackingEmbed(message.channel);
 
       const current = activeCountdowns.get(key);
       if (current?.reminderMessages?.length) {

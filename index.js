@@ -332,6 +332,17 @@ function sendExpiryReminder({ message, roleId, cellName, endTimeMs, label }) {
   });
 }
 
+async function editCountdownMessage(channel, messageId, embed) {
+  try {
+    const liveMessage = await channel.messages.fetch(messageId);
+    await liveMessage.edit({ embeds: [embed] });
+    return true;
+  } catch (error) {
+    console.error('Kunne ikke edit countdown-besked:', error.message);
+    return false;
+  }
+}
+
 function clearCountdownTimers(key) {
   const timers = activeCountdowns.get(key);
   if (!timers) return;
@@ -546,8 +557,8 @@ client.on('interactionCreate', async (interaction) => {
           endTimeMs,
           createdAtMs,
         });
-        await interaction.editReply({ embeds: [activeEmbed] });
-        state.lastRenderedSecond = remainingSecond;
+        const updated = await editCountdownMessage(message.channel, message.id, activeEmbed);
+        if (updated) state.lastRenderedSecond = remainingSecond;
         return;
       }
 
@@ -562,7 +573,7 @@ client.on('interactionCreate', async (interaction) => {
         deleteAtMs,
         expired: true,
       });
-      await interaction.editReply({ embeds: [expiredEmbed] });
+      await editCountdownMessage(message.channel, message.id, expiredEmbed);
 
       trackedCells.delete(key);
       persistTrackingState();

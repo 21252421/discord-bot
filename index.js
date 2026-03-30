@@ -43,6 +43,7 @@ const DELETE_AFTER_EXPIRED_MS = 60 * 60 * 1000; // 1 time
 const activeCountdowns = new Map();
 const trackedCells = new Map();
 const trackerMessageIdsByChannel = new Map();
+const restrictedChannelIds = new Set();
 
 function loadTrackingState() {
   try {
@@ -63,6 +64,11 @@ function loadTrackingState() {
         if (channelId && messageId) trackerMessageIdsByChannel.set(channelId, messageId);
       }
     }
+    if (Array.isArray(parsed.restrictedChannelIds)) {
+      for (const channelId of parsed.restrictedChannelIds) {
+        if (channelId) restrictedChannelIds.add(channelId);
+      }
+    }
   } catch (error) {
     console.error('Kunne ikke læse tracking-state:', error.message);
   }
@@ -73,6 +79,7 @@ function persistTrackingState() {
     const payload = {
       activeCells: Array.from(trackedCells.values()),
       trackerMessageIdsByChannel: Object.fromEntries(trackerMessageIdsByChannel.entries()),
+      restrictedChannelIds: Array.from(restrictedChannelIds.values()),
     };
     fs.writeFileSync(TRACKING_STATE_PATH, JSON.stringify(payload, null, 2), 'utf8');
   } catch (error) {
@@ -474,6 +481,7 @@ client.on('interactionCreate', async (interaction) => {
     messageId: message.id,
     messageUrl: message.url,
   });
+  restrictedChannelIds.add(message.channelId);
   persistTrackingState();
   await refreshTrackingEmbed(message.channel);
 
@@ -481,7 +489,7 @@ client.on('interactionCreate', async (interaction) => {
     tickTimeout: null,
     deleteTimeout: null,
     reminderTimeouts: [],
-    reminderMessages: [],
+    lastReminderMessage: null,
   });
 
   const scheduleReminder = (beforeMs, label) => {
@@ -489,6 +497,15 @@ client.on('interactionCreate', async (interaction) => {
     const delay = durationMs - beforeMs;
     const reminderTimeout = setTimeout(async () => {
       try {
+        const current = activeCountdowns.get(key);
+        if (current?.lastReminderMessage) {
+          try {
+            await current.lastReminderMessage.delete();
+          } catch (error) {
+            console.error('Kunne ikke slette tidligere påmindelse:', error.message);
+          }
+        }
+
         const reminderMessage = await sendExpiryReminder({
           message,
           roleId: reminderRole.id,
@@ -496,8 +513,7 @@ client.on('interactionCreate', async (interaction) => {
           endTimeMs,
           label,
         });
-        const current = activeCountdowns.get(key);
-        if (current && reminderMessage) current.reminderMessages.push(reminderMessage);
+        if (current && reminderMessage) current.lastReminderMessage = reminderMessage;
       } catch (error) {
         console.error(`Fejl ved ${label}-påmindelse:`, error.message);
       }
@@ -509,6 +525,8 @@ client.on('interactionCreate', async (interaction) => {
 
   scheduleReminder(60 * 60 * 1000, '1 time');
   scheduleReminder(15 * 60 * 1000, '15 min');
+  scheduleReminder(5 * 60 * 1000, '5 min');
+  scheduleReminder(60 * 1000, '1 min');
 
   const tick = async () => {
     const remainingMs = endTimeMs - Date.now();
@@ -550,17 +568,13 @@ client.on('interactionCreate', async (interaction) => {
       await refreshTrackingEmbed(message.channel);
 
       const current = activeCountdowns.get(key);
-      if (current?.reminderMessages?.length) {
-        await Promise.all(
-          current.reminderMessages.map(async (reminderMessage) => {
-            try {
-              await reminderMessage.delete();
-            } catch (error) {
-              console.error('Kunne ikke slette påmindelsesbesked:', error.message);
-            }
-          }),
-        );
-        current.reminderMessages = [];
+      if (current?.lastReminderMessage) {
+        try {
+          await current.lastReminderMessage.delete();
+        } catch (error) {
+          console.error('Kunne ikke slette påmindelsesbesked:', error.message);
+        }
+        current.lastReminderMessage = null;
       }
 
       const deleteTimeout = setTimeout(async () => {
@@ -580,7 +594,10 @@ client.on('interactionCreate', async (interaction) => {
       }
     } catch (error) {
       console.error('Fejl ved nedtælling-opdatering:', error.message);
-      clearCountdownTimers(key);
+      const nextDelay = 1000 - (Date.now() % 1000);
+      const retryTimeout = setTimeout(tick, nextDelay);
+      const state = activeCountdowns.get(key);
+      if (state) state.tickTimeout = retryTimeout;
     }
   };
 
@@ -609,6 +626,28 @@ client.on('messageDelete', async (message) => {
     }
   } catch (error) {
     console.error('Kunne ikke opdatere tracking efter manuel sletning:', error.message);
+  }
+});
+
+client.on('messageCreate', async (message) => {
+  if (message.author?.bot) return;
+  if (!message.guildId) return;
+  if (!restrictedChannelIds.has(message.channelId)) return;
+
+  try {
+    await message.delete();
+    const notice = await message.channel.send({
+      content: `${message.author}, denne kanal tillader kun **/celle** command.`,
+    });
+    setTimeout(async () => {
+      try {
+        await notice.delete();
+      } catch {
+        // ignorer
+      }
+    }, 8000);
+  } catch (error) {
+    console.error('Kunne ikke håndhæve /celle-only kanal:', error.message);
   }
 });
 

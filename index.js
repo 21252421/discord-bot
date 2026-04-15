@@ -13,7 +13,7 @@ const path = require('path');
 
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID;
+const GUILD_ID = process.env.GUILD_ID || null;
 const PORT = Number(process.env.PORT || 3000);
 const REQUIRED_ROLE_NAME = 'Celler+';
 const TRACKING_STATE_PATH = path.join(__dirname, 'tracking-state.json');
@@ -32,8 +32,8 @@ const REACT_EMOJI_IDS = [
   '1487837406177525832',
 ];
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
-  console.error('Mangler miljøvariabler: TOKEN/DISCORD_TOKEN, CLIENT_ID eller GUILD_ID');
+if (!TOKEN || !CLIENT_ID) {
+  console.error('Mangler miljøvariabler: TOKEN/DISCORD_TOKEN eller CLIENT_ID');
   process.exit(1);
 }
 
@@ -396,16 +396,20 @@ async function registerSlashCommand() {
         .setRequired(false),
     );
   const reactCommand = new SlashCommandBuilder().setName('react').setDescription('Opret gear react embed');
+  const commandPayload = [celleCommand.toJSON(), reactCommand.toJSON()];
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
+  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commandPayload });
+  console.log('Globale slash commands /celle og /react registreret');
 
-  // Ryd gamle globale /celle kommandoer (fx "Test command"), så kun guild-versionen vises.
-  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
-
-  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
-    body: [celleCommand.toJSON(), reactCommand.toJSON()],
-  });
-  console.log('Slash commands /celle og /react registreret');
+  if (GUILD_ID) {
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
+      body: commandPayload,
+    });
+    console.log(`Guild slash commands registreret for GUILD_ID=${GUILD_ID}`);
+  } else {
+    console.warn('GUILD_ID mangler, registrerer kun globale commands.');
+  }
 }
 
 loadTrackingState();

@@ -26,6 +26,7 @@ const REACT_EMOJI_IDS = [
   '1475828913547776114',
   '1475828943016689664',
   '1475828973941559388',
+  '1482497799563251904',
   '1475829879009181880',
   '1487837349168808136',
   '1487837381938642984',
@@ -447,24 +448,21 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (interaction.commandName === 'react') {
-    const now = new Date();
-    const clock = now.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
-
     const reactEmbed = new EmbedBuilder()
       .setColor(0x9b59b6)
-      .setDescription('**Gear react B:**\nReact på emojis nedenunder, hvilket gear du har!')
-      .setFooter({ text: `Sendt kl. ${clock}` })
-      .setTimestamp(now);
+      .setDescription('**Gear react B:**\nReact på emojis nedenunder, hvilket gear du har!');
 
     const sentMessage = await interaction.reply({ embeds: [reactEmbed], fetchReply: true });
 
-    for (const emojiId of REACT_EMOJI_IDS) {
-      try {
-        await sentMessage.react(emojiId);
-      } catch (error) {
-        console.error(`Kunne ikke tilføje react ${emojiId}:`, error.message);
-      }
-    }
+    await Promise.allSettled(
+      REACT_EMOJI_IDS.map(async (emojiId) => {
+        try {
+          await sentMessage.react(emojiId);
+        } catch (error) {
+          console.error(`Kunne ikke tilføje react ${emojiId}:`, error.message);
+        }
+      }),
+    );
     return;
   }
 

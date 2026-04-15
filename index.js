@@ -454,15 +454,12 @@ client.on('interactionCreate', async (interaction) => {
 
     const sentMessage = await interaction.reply({ embeds: [reactEmbed], fetchReply: true });
 
-    await Promise.allSettled(
-      REACT_EMOJI_IDS.map(async (emojiId) => {
-        try {
-          await sentMessage.react(emojiId);
-        } catch (error) {
-          console.error(`Kunne ikke tilføje react ${emojiId}:`, error.message);
-        }
-      }),
-    );
+    const reactionResults = await Promise.allSettled(REACT_EMOJI_IDS.map((emojiId) => sentMessage.react(emojiId)));
+    reactionResults.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error(`Kunne ikke tilføje react ${REACT_EMOJI_IDS[index]}:`, result.reason?.message || result.reason);
+      }
+    });
     return;
   }
 

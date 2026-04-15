@@ -17,6 +17,20 @@ const GUILD_ID = process.env.GUILD_ID;
 const PORT = Number(process.env.PORT || 3000);
 const REQUIRED_ROLE_NAME = 'Celler+';
 const TRACKING_STATE_PATH = path.join(__dirname, 'tracking-state.json');
+const REACT_EMOJI_IDS = [
+  '1475829091063038082',
+  '1475828857201360998',
+  '1475828661432356965',
+  '1475828747814047844',
+  '1475828789765476494',
+  '1475828913547776114',
+  '1475828943016689664',
+  '1475828973941559388',
+  '1475829879009181880',
+  '1487837349168808136',
+  '1487837381938642984',
+  '1487837406177525832',
+];
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
   console.error('Mangler miljøvariabler: TOKEN/DISCORD_TOKEN, CLIENT_ID eller GUILD_ID');
@@ -332,18 +346,29 @@ function sendExpiryReminder({ message, roleId, cellName, endTimeMs, label }) {
   });
 }
 
+async function editCountdownMessage(channel, messageId, embed) {
+  try {
+    const liveMessage = await channel.messages.fetch(messageId);
+    await liveMessage.edit({ embeds: [embed] });
+    return true;
+  } catch (error) {
+    console.error('Kunne ikke edit countdown-besked:', error.message);
+    return false;
+  }
+}
+
 function clearCountdownTimers(key) {
   const timers = activeCountdowns.get(key);
   if (!timers) return;
 
-  if (timers.tickTimeout) clearTimeout(timers.tickTimeout);
+  if (timers.tickInterval) clearInterval(timers.tickInterval);
   if (timers.deleteTimeout) clearTimeout(timers.deleteTimeout);
   for (const reminderTimeout of timers.reminderTimeouts) clearTimeout(reminderTimeout);
   activeCountdowns.delete(key);
 }
 
 async function registerSlashCommand() {
-  const command = new SlashCommandBuilder()
+  const celleCommand = new SlashCommandBuilder()
     .setName('celle')
     .setDescription('Opret celle nedtælling')
     .addStringOption((option) =>
@@ -370,6 +395,7 @@ async function registerSlashCommand() {
         .setDescription('Vedhæft et billede')
         .setRequired(false),
     );
+  const reactCommand = new SlashCommandBuilder().setName('react').setDescription('Opret gear react embed');
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
 
@@ -377,9 +403,9 @@ async function registerSlashCommand() {
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
 
   await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
-    body: [command.toJSON()],
+    body: [celleCommand.toJSON(), reactCommand.toJSON()],
   });
-  console.log('Slash command /celle registreret (kun én kommando aktiv)');
+  console.log('Slash commands /celle og /react registreret');
 }
 
 loadTrackingState();
@@ -409,12 +435,36 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== 'celle') return;
+  if (!interaction.isChatInputCommand()) return;
 
   if (!interaction.inGuild()) {
     await interaction.reply({ content: 'Denne command virker kun i en server.', ephemeral: true });
     return;
   }
+
+  if (interaction.commandName === 'react') {
+    const now = new Date();
+    const clock = now.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+
+    const reactEmbed = new EmbedBuilder()
+      .setColor(0x9b59b6)
+      .setDescription('**Gear react B:**\nReact på emojis nedenunder, hvilket gear du har!')
+      .setFooter({ text: `Sendt kl. ${clock}` })
+      .setTimestamp(now);
+
+    const sentMessage = await interaction.reply({ embeds: [reactEmbed], fetchReply: true });
+
+    for (const emojiId of REACT_EMOJI_IDS) {
+      try {
+        await sentMessage.react(emojiId);
+      } catch (error) {
+        console.error(`Kunne ikke tilføje react ${emojiId}:`, error.message);
+      }
+    }
+    return;
+  }
+
+  if (interaction.commandName !== 'celle') return;
 
   const memberRoles = interaction.member?.roles;
   const hasRole = Array.isArray(memberRoles)
@@ -486,10 +536,11 @@ client.on('interactionCreate', async (interaction) => {
   await refreshTrackingEmbed(message.channel);
 
   activeCountdowns.set(key, {
-    tickTimeout: null,
+    tickInterval: null,
     deleteTimeout: null,
     reminderTimeouts: [],
     lastReminderMessage: null,
+    lastRenderedSecond: null,
   });
 
   const scheduleReminder = (beforeMs, label) => {
@@ -530,9 +581,13 @@ client.on('interactionCreate', async (interaction) => {
 
   const tick = async () => {
     const remainingMs = endTimeMs - Date.now();
+    const remainingSecond = Math.max(0, Math.floor(remainingMs / 1000));
+    const state = activeCountdowns.get(key);
+    if (!state) return;
 
     try {
       if (remainingMs > 0) {
+        if (state.lastRenderedSecond === remainingSecond) return;
         const activeEmbed = buildCountdownEmbed({
           cellName,
           note,
@@ -541,12 +596,8 @@ client.on('interactionCreate', async (interaction) => {
           endTimeMs,
           createdAtMs,
         });
-        await message.edit({ embeds: [activeEmbed] });
-
-        const nextDelay = 1000 - (Date.now() % 1000);
-        const nextTimeout = setTimeout(tick, nextDelay);
-        const state = activeCountdowns.get(key);
-        if (state) state.tickTimeout = nextTimeout;
+        const updated = await editCountdownMessage(message.channel, message.id, activeEmbed);
+        if (updated) state.lastRenderedSecond = remainingSecond;
         return;
       }
 
@@ -561,7 +612,7 @@ client.on('interactionCreate', async (interaction) => {
         deleteAtMs,
         expired: true,
       });
-      await message.edit({ embeds: [expiredEmbed] });
+      await editCountdownMessage(message.channel, message.id, expiredEmbed);
 
       trackedCells.delete(key);
       persistTrackingState();
@@ -590,21 +641,14 @@ client.on('interactionCreate', async (interaction) => {
       const state = activeCountdowns.get(key);
       if (state) {
         state.deleteTimeout = deleteTimeout;
-        state.tickTimeout = null;
       }
     } catch (error) {
       console.error('Fejl ved nedtælling-opdatering:', error.message);
-      const nextDelay = 1000 - (Date.now() % 1000);
-      const retryTimeout = setTimeout(tick, nextDelay);
-      const state = activeCountdowns.get(key);
-      if (state) state.tickTimeout = retryTimeout;
     }
   };
-
-  const firstDelay = 1000 - (Date.now() % 1000);
-  const timeout = setTimeout(tick, firstDelay);
   const state = activeCountdowns.get(key);
-  if (state) state.tickTimeout = timeout;
+  if (state) state.tickInterval = setInterval(tick, 1000);
+  await tick();
 });
 
 client.on('messageDelete', async (message) => {

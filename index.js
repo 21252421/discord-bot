@@ -684,7 +684,7 @@ client.on('interactionCreate', async (interaction) => {
       panel.cooldowns[areaId] = {
         end: nowSec + durationSec,
         user: interaction.user.username,
-        durationSec,
+        durationSec: item?.defaultSec || panel.cooldowns[areaId].durationSec,
       };
 
       try {
@@ -739,9 +739,11 @@ client.on('interactionCreate', async (interaction) => {
       const nowSec = Math.floor(Date.now() / 1000);
       let changed = false;
 
-      for (const value of Object.values(panel.cooldowns)) {
+      for (const [itemId, value] of Object.entries(panel.cooldowns)) {
         if (value.end > 0 && value.end <= nowSec) {
-          value.end = nowSec + value.durationSec;
+          const item = getCooldownItemById(itemId);
+          value.end = nowSec + (item?.defaultSec || value.durationSec);
+          value.durationSec = item?.defaultSec || value.durationSec;
           changed = true;
         }
       }

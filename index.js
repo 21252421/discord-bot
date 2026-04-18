@@ -275,6 +275,13 @@ function formatMMSSFromSeconds(seconds) {
   return `${mm}:${ss}`;
 }
 
+function formatMinSecText(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const min = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${min} min / ${sec} sekunder`;
+}
+
 function getCooldownItemById(itemId) {
   return COOLDOWN_ITEMS.find((item) => item.id === itemId) || null;
 }
@@ -297,11 +304,7 @@ function buildCooldownPanelEmbed(panel) {
     .setDescription('Live oversigt over aktive cooldowns.');
 
   if (active.length === 0) {
-    embed.addFields(
-      { name: 'Status', value: 'Der er ingen aktive cooldowns.' },
-      { name: 'Betjening', value: '🛑 Rød knap = stop aktiv cooldown\n🟢 Grøn knap = start cooldown' },
-      { name: '\u200B', value: '\u200B' },
-    );
+    embed.addFields({ name: 'Status', value: 'Der er ingen aktive cooldowns.' }, { name: '\u200B', value: '\u200B' });
     return embed;
   }
 
@@ -309,16 +312,12 @@ function buildCooldownPanelEmbed(panel) {
   for (const entry of active) {
     const block = entry.item.label.startsWith('B+ ') ? 'B+' : 'B';
     lines.push(
-      `${entry.item.emoji} Område: ${entry.item.label} - Blok: ${block} - Startet af: ${entry.user} (${formatMMSSFromSeconds(
-        entry.left,
-      )}) • Klar <t:${entry.end}:t>`,
+      `${entry.item.emoji} **${entry.item.label}**\n\`\`\`Område: ${entry.item.label}\nBlok: ${block}\nStartet af: ${
+        entry.user
+      }\nKlar om: ${formatMinSecText(entry.left)}\`\`\``,
     );
   }
-  embed.addFields(
-    { name: 'Aktive cooldowns (kortest først)', value: lines.join('\n') },
-    { name: 'Betjening', value: '🛑 Rød knap = stop aktiv cooldown\n🟢 Grøn knap = start cooldown' },
-    { name: '\u200B', value: '\u200B' },
-  );
+  embed.addFields({ name: 'Aktive cooldowns (kortest først)', value: lines.join('\n') }, { name: '\u200B', value: '\u200B' });
   return embed;
 }
 
@@ -588,9 +587,11 @@ client.on('interactionCreate', async (interaction) => {
       panel.cooldowns[itemId] = { ...current, end: nowSec + current.durationSec, user: interaction.user.username };
     }
 
-    await interaction.deferUpdate();
     try {
-      await renderCooldownPanel(panel);
+      await interaction.update({
+        embeds: [buildCooldownPanelEmbed(panel)],
+        components: buildCooldownPanelRows(panel),
+      });
     } catch (error) {
       console.error('Kunne ikke opdatere cooldown panel efter knaptryk:', error.message);
       clearCooldownPanel(panel);
@@ -687,11 +688,7 @@ client.on('interactionCreate', async (interaction) => {
       .setColor(0x9b59b6)
       .setTitle('🕒 Cooldowns – B & B+')
       .setDescription('Live oversigt over aktive cooldowns.')
-      .addFields(
-        { name: 'Status', value: 'Der er ingen aktive cooldowns.' },
-        { name: 'Betjening', value: '🛑 Rød knap = stop aktiv cooldown\n🟢 Grøn knap = start cooldown' },
-        { name: '\u200B', value: '\u200B' },
-      );
+      .addFields({ name: 'Status', value: 'Der er ingen aktive cooldowns.' }, { name: '\u200B', value: '\u200B' });
 
     const setupRows = [new ActionRowBuilder(), new ActionRowBuilder()];
     for (const item of COOLDOWN_ITEMS) {

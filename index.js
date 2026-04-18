@@ -286,7 +286,7 @@ function buildCooldownPanelEmbed(panel) {
     .map(([itemId, value]) => {
       const item = getCooldownItemById(itemId);
       const left = value.end - nowSec;
-      return { item, user: value.user, left };
+      return { item, user: value.user, left, end: value.end };
     })
     .filter((entry) => entry.item)
     .sort((a, b) => a.left - b.left);
@@ -294,18 +294,31 @@ function buildCooldownPanelEmbed(panel) {
   const embed = new EmbedBuilder()
     .setColor(0x9b59b6)
     .setTitle('🕒 Cooldowns – B & B+')
-    .setDescription('Tryk på en knap for at starte/stoppe cooldown.\nBrug `/setchannel område tid` for at sætte ny tid.');
+    .setDescription('Live oversigt over aktive cooldowns.');
 
   if (active.length === 0) {
-    embed.addFields({ name: 'Status', value: 'Der er ingen aktive cooldowns.' });
+    embed.addFields(
+      { name: 'Status', value: 'Der er ingen aktive cooldowns.' },
+      { name: 'Betjening', value: '🛑 Rød knap = stop aktiv cooldown\n🟢 Grøn knap = start cooldown' },
+      { name: '\u200B', value: '\u200B' },
+    );
     return embed;
   }
 
-  const lines = ['**Hvad/Hvor**            **Registrant**'];
+  const lines = [];
   for (const entry of active) {
-    lines.push(`${entry.item.emoji} ${entry.item.label}\n└ 🔴 ${entry.user} (${formatMMSSFromSeconds(entry.left)})`);
+    const block = entry.item.label.startsWith('B+ ') ? 'B+' : 'B';
+    lines.push(
+      `${entry.item.emoji} Område: ${entry.item.label} - Blok: ${block} - Startet af: ${entry.user} (${formatMMSSFromSeconds(
+        entry.left,
+      )}) • Klar <t:${entry.end}:t>`,
+    );
   }
-  embed.addFields({ name: 'Aktive cooldowns (kortest først)', value: lines.join('\n\n') });
+  embed.addFields(
+    { name: 'Aktive cooldowns (kortest først)', value: lines.join('\n') },
+    { name: 'Betjening', value: '🛑 Rød knap = stop aktiv cooldown\n🟢 Grøn knap = start cooldown' },
+    { name: '\u200B', value: '\u200B' },
+  );
   return embed;
 }
 
@@ -320,7 +333,7 @@ function buildCooldownPanelRows(panel) {
     const button = new ButtonBuilder()
       .setCustomId(`cooldown:${panel.messageId}:${item.id}`)
       .setStyle(active ? ButtonStyle.Danger : ButtonStyle.Success)
-      .setLabel(active ? `⏹ ${item.label} ${formatMMSSFromSeconds(left)}` : `▶ ${item.label}`);
+      .setLabel(active ? `🛑 Stop ${item.label} (${formatMMSSFromSeconds(left)})` : `🟢 Start ${item.label}`);
     rows[item.row].addComponents(button);
   }
 
@@ -557,12 +570,13 @@ client.once('ready', async () => {
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     if (!interaction.customId.startsWith('cooldown:')) return;
-    const [, messageId, itemId] = interaction.customId.split(':');
-    const panel = cooldownPanels.get(messageId);
+    const [, rawMessageId, itemId] = interaction.customId.split(':');
+    const messageId = rawMessageId === 'pending' ? interaction.message.id : rawMessageId;
+    const panel = cooldownPanels.get(messageId) || getCooldownPanelForChannel(interaction.channelId);
     const item = getCooldownItemById(itemId);
 
     if (!panel || !item) {
-      await interaction.reply({ content: 'Cooldown panel findes ikke længere.', ephemeral: true });
+      await interaction.reply({ content: 'Cooldown panel kunne ikke findes. Kør `/setchannel` igen.', ephemeral: true });
       return;
     }
 
@@ -672,8 +686,12 @@ client.on('interactionCreate', async (interaction) => {
     const initialEmbed = new EmbedBuilder()
       .setColor(0x9b59b6)
       .setTitle('🕒 Cooldowns – B & B+')
-      .setDescription('Tryk på en knap for at starte/stoppe cooldown.\nBrug `/setchannel område tid` for at sætte ny tid.')
-      .addFields({ name: 'Status', value: 'Der er ingen aktive cooldowns.' });
+      .setDescription('Live oversigt over aktive cooldowns.')
+      .addFields(
+        { name: 'Status', value: 'Der er ingen aktive cooldowns.' },
+        { name: 'Betjening', value: '🛑 Rød knap = stop aktiv cooldown\n🟢 Grøn knap = start cooldown' },
+        { name: '\u200B', value: '\u200B' },
+      );
 
     const setupRows = [new ActionRowBuilder(), new ActionRowBuilder()];
     for (const item of COOLDOWN_ITEMS) {

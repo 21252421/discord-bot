@@ -342,7 +342,12 @@ async function renderCooldownPanel(panel) {
   const channel = await client.channels.fetch(panel.channelId);
   if (!channel?.isTextBased()) return false;
 
-  const message = await channel.messages.fetch(panel.messageId);
+  let message = panel.message;
+  if (!message) {
+    message = await channel.messages.fetch(panel.messageId);
+    panel.message = message;
+  }
+
   await message.edit({
     embeds: [buildCooldownPanelEmbed(panel)],
     components: buildCooldownPanelRows(panel),
@@ -522,8 +527,25 @@ async function registerSlashCommand() {
         .setDescription('Sæt tid fx 20m, 1h, 1d, 20m 30s')
         .setRequired(false),
     );
+  const setChanelCommand = new SlashCommandBuilder()
+    .setName('setchanel')
+    .setDescription('Start område med midlertidig tid, resetter til standard ved 0')
+    .addStringOption((option) =>
+      option
+        .setName('xx')
+        .setDescription('Vælg område')
+        .setRequired(true)
+        .addChoices(...COOLDOWN_ITEMS.map((item) => ({ name: item.label, value: item.id }))),
+    )
+    .addStringOption((option) =>
+      option
+        .setName('time')
+        .setDescription('Midlertidig tid fx 15m')
+        .setRequired(true),
+    );
   const commandPayload = [celleCommand.toJSON(), reactCommand.toJSON()];
   commandPayload.push(setChannelCommand.toJSON());
+  commandPayload.push(setChanelCommand.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commandPayload });
@@ -591,9 +613,9 @@ client.on('interactionCreate', async (interaction) => {
         embeds: [buildCooldownPanelEmbed(panel)],
         components: buildCooldownPanelRows(panel),
       });
+      panel.message = interaction.message;
     } catch (error) {
       console.error('Kunne ikke opdatere cooldown panel efter knaptryk:', error.message);
-      clearCooldownPanel(panel);
     }
     return;
   }
@@ -708,6 +730,7 @@ client.on('interactionCreate', async (interaction) => {
     const panel = {
       messageId: sentMessage.id,
       channelId: sentMessage.channelId,
+      message: sentMessage,
       cooldowns,
       interval: null,
     };
@@ -727,7 +750,9 @@ client.on('interactionCreate', async (interaction) => {
         await renderCooldownPanel(panel);
       } catch (error) {
         console.error('Cooldown panel interval stoppet:', error.message);
-        clearCooldownPanel(panel);
+        if (String(error?.message || '').toLowerCase().includes('unknown message')) {
+          clearCooldownPanel(panel);
+        }
       }
 
       if (changed) {
@@ -742,6 +767,54 @@ client.on('interactionCreate', async (interaction) => {
       console.error('Kunne ikke starte cooldown panel:', error.message);
       clearCooldownPanel(panel);
     }
+    return;
+  }
+
+  if (interaction.commandName === 'setchanel') {
+    if (interaction.user.id !== SET_CHANNEL_ADMIN_ID) {
+      await interaction.reply({ content: 'Du har ikke adgang til denne command.', ephemeral: true });
+      return;
+    }
+
+    const areaId = interaction.options.getString('xx', true);
+    const timeInput = interaction.options.getString('time', true);
+    const panel = getCooldownPanelForChannel(interaction.channelId);
+    if (!panel) {
+      await interaction.reply({
+        content: 'Der findes ikke et panel i denne kanal endnu. Kør `/setchannel` først.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const durationMs = parseDuration(timeInput);
+    if (durationMs < 1000) {
+      await interaction.reply({
+        content: 'Ugyldig tid. Brug fx `15m`, `30m`, `1h`.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const item = getCooldownItemById(areaId);
+    const nowSec = Math.floor(Date.now() / 1000);
+    panel.cooldowns[areaId] = {
+      ...panel.cooldowns[areaId],
+      end: nowSec + Math.floor(durationMs / 1000),
+      user: interaction.user.username,
+      durationSec: item?.defaultSec || panel.cooldowns[areaId].durationSec,
+    };
+
+    try {
+      await renderCooldownPanel(panel);
+    } catch (error) {
+      console.error('Kunne ikke opdatere panel efter /setchanel:', error.message);
+    }
+
+    await interaction.reply({
+      content: `Sat **${item?.label || areaId}** til **${timeInput}**. Ved 0 resetter den til standardtid.`,
+      ephemeral: true,
+    });
     return;
   }
 

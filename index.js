@@ -1,4 +1,7 @@
 const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   EmbedBuilder,
   GatewayIntentBits,
@@ -17,20 +20,29 @@ const GUILD_ID = process.env.GUILD_ID || null;
 const PORT = Number(process.env.PORT || 3000);
 const REQUIRED_ROLE_NAME = 'Celler+';
 const TRACKING_STATE_PATH = path.join(__dirname, 'tracking-state.json');
+const SET_CHANNEL_ADMIN_ID = '515590271359123477';
 const REACT_EMOJI_IDS = [
+  '1475829091063038082',
   '1475828857201360998',
   '1475828661432356965',
   '1475828747814047844',
   '1475828789765476494',
-  '1475829091063038082',
-  '1475829364624068731',
-  '1475829879009181880',
   '1475828913547776114',
   '1475828943016689664',
   '1475828973941559388',
-  '🟦',
+  '1482497799563251904',
+  '1475829879009181880',
+  '1487837349168808136',
+  '1487837381938642984',
+  '1487837406177525832',
 ];
-
+const COOLDOWN_ITEMS = [
+  { id: 'b_vv', label: 'B - VV', emoji: '💰', row: 0 },
+  { id: 'b_kiste', label: 'B - Hemmelig Kiste', emoji: '🎁', row: 0 },
+  { id: 'b_pvp', label: 'B - PvP Mine', emoji: '⚔️', row: 0 },
+  { id: 'bp_vv', label: 'B+ - VV', emoji: '💎', row: 1 },
+  { id: 'bp_pvp', label: 'B+ - PvP Mine', emoji: '⛏️', row: 1 },
+];
 
 if (!TOKEN || !CLIENT_ID) {
   console.error('Mangler miljøvariabler: TOKEN/DISCORD_TOKEN eller CLIENT_ID');
@@ -58,6 +70,7 @@ const activeCountdowns = new Map();
 const trackedCells = new Map();
 const trackerMessageIdsByChannel = new Map();
 const restrictedChannelIds = new Set();
+const cooldownPanels = new Map();
 
 function loadTrackingState() {
   try {
@@ -254,6 +267,79 @@ function formatRemaining(ms) {
   return parts.join(' ');
 }
 
+function formatMMSSFromSeconds(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+function getCooldownItemById(itemId) {
+  return COOLDOWN_ITEMS.find((item) => item.id === itemId) || null;
+}
+
+function buildCooldownPanelEmbed(panel) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const active = Object.entries(panel.cooldowns)
+    .filter(([, value]) => value.end > nowSec)
+    .map(([itemId, value]) => {
+      const item = getCooldownItemById(itemId);
+      const left = value.end - nowSec;
+      return { item, user: value.user, left };
+    })
+    .filter((entry) => entry.item)
+    .sort((a, b) => a.left - b.left);
+
+  const embed = new EmbedBuilder().setColor(0x9b59b6).setTitle('🕒 Cooldowns – B & B+');
+
+  if (active.length === 0) {
+    embed.setDescription('Der er ingen aktive cooldowns.');
+    return embed;
+  }
+
+  const lines = ['**Hvad/Hvor**        **Registrant**'];
+  for (const entry of active) {
+    lines.push(`${entry.item.emoji} ${entry.item.label}     🔴 ${entry.user} (${formatMMSSFromSeconds(entry.left)})`);
+  }
+  embed.setDescription(lines.join('\n'));
+  return embed;
+}
+
+function buildCooldownPanelRows(panel) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rows = [new ActionRowBuilder(), new ActionRowBuilder()];
+
+  for (const item of COOLDOWN_ITEMS) {
+    const value = panel.cooldowns[item.id];
+    const active = value.end > nowSec;
+    const left = active ? value.end - nowSec : panel.durationSec;
+    const button = new ButtonBuilder()
+      .setCustomId(`cooldown:${panel.messageId}:${item.id}`)
+      .setStyle(active ? ButtonStyle.Danger : ButtonStyle.Success)
+      .setLabel(active ? `Stop ${item.label} (${formatMMSSFromSeconds(left)})` : `Start ${item.label}`);
+    rows[item.row].addComponents(button);
+  }
+
+  return rows;
+}
+
+async function renderCooldownPanel(panel) {
+  const channel = await client.channels.fetch(panel.channelId);
+  if (!channel?.isTextBased()) return false;
+
+  const message = await channel.messages.fetch(panel.messageId);
+  await message.edit({
+    embeds: [buildCooldownPanelEmbed(panel)],
+    components: buildCooldownPanelRows(panel),
+  });
+  return true;
+}
+
+function clearCooldownPanel(panel) {
+  if (panel?.interval) clearInterval(panel.interval);
+  if (panel?.messageId) cooldownPanels.delete(panel.messageId);
+}
+
 function buildCountdownEmbed({
   cellName,
   note,
@@ -396,7 +482,18 @@ async function registerSlashCommand() {
         .setRequired(false),
     );
   const reactCommand = new SlashCommandBuilder().setName('react').setDescription('Opret gear react embed');
+  const setChannelCommand = new SlashCommandBuilder()
+    .setName('setchanel')
+    .setDescription('Opret cooldown panel i denne kanal')
+    .addIntegerOption((option) =>
+      option
+        .setName('timing')
+        .setDescription('Cooldown tid i sekunder')
+        .setRequired(true)
+        .setMinValue(1),
+    );
   const commandPayload = [celleCommand.toJSON(), reactCommand.toJSON()];
+  commandPayload.push(setChannelCommand.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commandPayload });
@@ -439,6 +536,35 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  if (interaction.isButton()) {
+    if (!interaction.customId.startsWith('cooldown:')) return;
+    const [, messageId, itemId] = interaction.customId.split(':');
+    const panel = cooldownPanels.get(messageId);
+    const item = getCooldownItemById(itemId);
+
+    if (!panel || !item) {
+      await interaction.reply({ content: 'Cooldown panel findes ikke længere.', ephemeral: true });
+      return;
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const current = panel.cooldowns[itemId];
+    if (current.end > nowSec) {
+      panel.cooldowns[itemId] = { end: 0, user: '' };
+    } else {
+      panel.cooldowns[itemId] = { end: nowSec + panel.durationSec, user: interaction.user.username };
+    }
+
+    await interaction.deferUpdate();
+    try {
+      await renderCooldownPanel(panel);
+    } catch (error) {
+      console.error('Kunne ikke opdatere cooldown panel efter knaptryk:', error.message);
+      clearCooldownPanel(panel);
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   if (!interaction.inGuild()) {
@@ -459,6 +585,77 @@ client.on('interactionCreate', async (interaction) => {
         console.error(`Kunne ikke tilføje react ${REACT_EMOJI_IDS[index]}:`, result.reason?.message || result.reason);
       }
     });
+    return;
+  }
+
+  if (interaction.commandName === 'setchanel') {
+    if (interaction.user.id !== SET_CHANNEL_ADMIN_ID) {
+      await interaction.reply({ content: 'Du har ikke adgang til denne command.', ephemeral: true });
+      return;
+    }
+
+    const durationSec = interaction.options.getInteger('timing', true);
+    const cooldowns = Object.fromEntries(COOLDOWN_ITEMS.map((item) => [item.id, { end: 0, user: '' }]));
+
+    const initialEmbed = new EmbedBuilder()
+      .setColor(0x9b59b6)
+      .setTitle('🕒 Cooldowns – B & B+')
+      .setDescription('Der er ingen aktive cooldowns.');
+
+    const setupRows = [new ActionRowBuilder(), new ActionRowBuilder()];
+    for (const item of COOLDOWN_ITEMS) {
+      setupRows[item.row].addComponents(
+        new ButtonBuilder()
+          .setCustomId(`cooldown:pending:${item.id}`)
+          .setStyle(ButtonStyle.Success)
+          .setLabel(`Start ${item.label}`),
+      );
+    }
+
+    const sentMessage = await interaction.reply({
+      embeds: [initialEmbed],
+      components: setupRows,
+      fetchReply: true,
+    });
+
+    const panel = {
+      messageId: sentMessage.id,
+      channelId: sentMessage.channelId,
+      durationSec,
+      cooldowns,
+      interval: null,
+    };
+
+    panel.interval = setInterval(async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      let changed = false;
+
+      for (const value of Object.values(panel.cooldowns)) {
+        if (value.end > 0 && value.end <= nowSec) {
+          value.end = nowSec + panel.durationSec;
+          changed = true;
+        }
+      }
+
+      try {
+        await renderCooldownPanel(panel);
+      } catch (error) {
+        console.error('Cooldown panel interval stoppet:', error.message);
+        clearCooldownPanel(panel);
+      }
+
+      if (changed) {
+        // no-op: panel er allerede rerenderet, men changed beholdes for læsbarhed/udvidelser.
+      }
+    }, 1000);
+
+    cooldownPanels.set(panel.messageId, panel);
+    try {
+      await renderCooldownPanel(panel);
+    } catch (error) {
+      console.error('Kunne ikke starte cooldown panel:', error.message);
+      clearCooldownPanel(panel);
+    }
     return;
   }
 
@@ -650,6 +847,11 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.on('messageDelete', async (message) => {
+  const panel = cooldownPanels.get(message.id);
+  if (panel) {
+    clearCooldownPanel(panel);
+  }
+
   const key = `${message.channelId}:${message.id}`;
   if (!trackedCells.has(key)) return;
 
@@ -695,11 +897,13 @@ client.on('messageCreate', async (message) => {
 
 process.on('SIGINT', () => {
   for (const key of activeCountdowns.keys()) clearCountdownTimers(key);
+  for (const panel of cooldownPanels.values()) clearCooldownPanel(panel);
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   for (const key of activeCountdowns.keys()) clearCountdownTimers(key);
+  for (const panel of cooldownPanels.values()) clearCooldownPanel(panel);
   process.exit(0);
 });
 

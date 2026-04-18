@@ -43,6 +43,7 @@ const COOLDOWN_ITEMS = [
   { id: 'bp_vv', label: 'B+ - VV', emoji: '💎', row: 1 },
   { id: 'bp_pvp', label: 'B+ - PvP Mine', emoji: '⛏️', row: 1 },
 ];
+const DEFAULT_COOLDOWN_SECONDS = 20 * 60;
 
 if (!TOKEN || !CLIENT_ID) {
   console.error('Mangler miljøvariabler: TOKEN/DISCORD_TOKEN eller CLIENT_ID');
@@ -290,18 +291,21 @@ function buildCooldownPanelEmbed(panel) {
     .filter((entry) => entry.item)
     .sort((a, b) => a.left - b.left);
 
-  const embed = new EmbedBuilder().setColor(0x9b59b6).setTitle('🕒 Cooldowns – B & B+');
+  const embed = new EmbedBuilder()
+    .setColor(0x9b59b6)
+    .setTitle('🕒 Cooldowns – B & B+')
+    .setDescription('Tryk på en knap for at starte/stoppe cooldown.\nBrug `/setchannel område tid` for at sætte ny tid.');
 
   if (active.length === 0) {
-    embed.setDescription('Der er ingen aktive cooldowns.');
+    embed.addFields({ name: 'Status', value: 'Der er ingen aktive cooldowns.' });
     return embed;
   }
 
-  const lines = ['**Hvad/Hvor**        **Registrant**'];
+  const lines = ['**Hvad/Hvor**            **Registrant**'];
   for (const entry of active) {
-    lines.push(`${entry.item.emoji} ${entry.item.label}     🔴 ${entry.user} (${formatMMSSFromSeconds(entry.left)})`);
+    lines.push(`${entry.item.emoji} ${entry.item.label}\n└ 🔴 ${entry.user} (${formatMMSSFromSeconds(entry.left)})`);
   }
-  embed.setDescription(lines.join('\n'));
+  embed.addFields({ name: 'Aktive cooldowns (kortest først)', value: lines.join('\n\n') });
   return embed;
 }
 
@@ -312,11 +316,11 @@ function buildCooldownPanelRows(panel) {
   for (const item of COOLDOWN_ITEMS) {
     const value = panel.cooldowns[item.id];
     const active = value.end > nowSec;
-    const left = active ? value.end - nowSec : panel.durationSec;
+    const left = active ? value.end - nowSec : value.durationSec;
     const button = new ButtonBuilder()
       .setCustomId(`cooldown:${panel.messageId}:${item.id}`)
       .setStyle(active ? ButtonStyle.Danger : ButtonStyle.Success)
-      .setLabel(active ? `Stop ${item.label} (${formatMMSSFromSeconds(left)})` : `Start ${item.label}`);
+      .setLabel(active ? `⏹ ${item.label} ${formatMMSSFromSeconds(left)}` : `▶ ${item.label}`);
     rows[item.row].addComponents(button);
   }
 
@@ -338,6 +342,13 @@ async function renderCooldownPanel(panel) {
 function clearCooldownPanel(panel) {
   if (panel?.interval) clearInterval(panel.interval);
   if (panel?.messageId) cooldownPanels.delete(panel.messageId);
+}
+
+function getCooldownPanelForChannel(channelId) {
+  for (const panel of cooldownPanels.values()) {
+    if (panel.channelId === channelId) return panel;
+  }
+  return null;
 }
 
 function buildCountdownEmbed({
@@ -483,14 +494,22 @@ async function registerSlashCommand() {
     );
   const reactCommand = new SlashCommandBuilder().setName('react').setDescription('Opret gear react embed');
   const setChannelCommand = new SlashCommandBuilder()
-    .setName('setchanel')
-    .setDescription('Opret cooldown panel i denne kanal')
-    .addIntegerOption((option) =>
+    .setName('setchannel')
+    .setDescription('Opret panel eller sæt tid på område')
+    .addStringOption((option) =>
       option
-        .setName('timing')
-        .setDescription('Cooldown tid i sekunder')
-        .setRequired(true)
-        .setMinValue(1),
+        .setName('område')
+        .setDescription('Vælg område (fx B - VV)')
+        .setRequired(false)
+        .addChoices(
+          ...COOLDOWN_ITEMS.map((item) => ({ name: item.label, value: item.id })),
+        ),
+    )
+    .addStringOption((option) =>
+      option
+        .setName('tid')
+        .setDescription('Sæt tid fx 20m, 1h, 1d, 20m 30s')
+        .setRequired(false),
     );
   const commandPayload = [celleCommand.toJSON(), reactCommand.toJSON()];
   commandPayload.push(setChannelCommand.toJSON());
@@ -550,9 +569,9 @@ client.on('interactionCreate', async (interaction) => {
     const nowSec = Math.floor(Date.now() / 1000);
     const current = panel.cooldowns[itemId];
     if (current.end > nowSec) {
-      panel.cooldowns[itemId] = { end: 0, user: '' };
+      panel.cooldowns[itemId] = { ...current, end: 0, user: '' };
     } else {
-      panel.cooldowns[itemId] = { end: nowSec + panel.durationSec, user: interaction.user.username };
+      panel.cooldowns[itemId] = { ...current, end: nowSec + current.durationSec, user: interaction.user.username };
     }
 
     await interaction.deferUpdate();
@@ -588,19 +607,73 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  if (interaction.commandName === 'setchanel') {
+  if (interaction.commandName === 'setchannel') {
     if (interaction.user.id !== SET_CHANNEL_ADMIN_ID) {
       await interaction.reply({ content: 'Du har ikke adgang til denne command.', ephemeral: true });
       return;
     }
 
-    const durationSec = interaction.options.getInteger('timing', true);
-    const cooldowns = Object.fromEntries(COOLDOWN_ITEMS.map((item) => [item.id, { end: 0, user: '' }]));
+    const areaId = interaction.options.getString('område');
+    const timeInput = interaction.options.getString('tid');
+
+    if ((areaId && !timeInput) || (!areaId && timeInput)) {
+      await interaction.reply({
+        content: 'Brug begge felter sammen: `/setchannel område:<...> tid:<...>`.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (areaId && timeInput) {
+      const panel = getCooldownPanelForChannel(interaction.channelId);
+      if (!panel) {
+        await interaction.reply({
+          content: 'Der findes ikke et panel i denne kanal endnu. Kør `/setchannel` først.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const durationMs = parseDuration(timeInput);
+      if (durationMs < 1000) {
+        await interaction.reply({
+          content: 'Ugyldig tid. Brug fx `20m`, `1h`, `1d`, `20m 30s`.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const durationSec = Math.floor(durationMs / 1000);
+      const nowSec = Math.floor(Date.now() / 1000);
+      panel.cooldowns[areaId] = {
+        end: nowSec + durationSec,
+        user: interaction.user.username,
+        durationSec,
+      };
+
+      try {
+        await renderCooldownPanel(panel);
+      } catch (error) {
+        console.error('Kunne ikke opdatere panel efter /setchannel område+tid:', error.message);
+      }
+
+      const item = getCooldownItemById(areaId);
+      await interaction.reply({
+        content: `Sat **${item?.label || areaId}** til **${formatMMSSFromSeconds(durationSec)}** og startet cooldown.`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const cooldowns = Object.fromEntries(
+      COOLDOWN_ITEMS.map((item) => [item.id, { end: 0, user: '', durationSec: DEFAULT_COOLDOWN_SECONDS }]),
+    );
 
     const initialEmbed = new EmbedBuilder()
       .setColor(0x9b59b6)
       .setTitle('🕒 Cooldowns – B & B+')
-      .setDescription('Der er ingen aktive cooldowns.');
+      .setDescription('Tryk på en knap for at starte/stoppe cooldown.\nBrug `/setchannel område tid` for at sætte ny tid.')
+      .addFields({ name: 'Status', value: 'Der er ingen aktive cooldowns.' });
 
     const setupRows = [new ActionRowBuilder(), new ActionRowBuilder()];
     for (const item of COOLDOWN_ITEMS) {
@@ -621,7 +694,6 @@ client.on('interactionCreate', async (interaction) => {
     const panel = {
       messageId: sentMessage.id,
       channelId: sentMessage.channelId,
-      durationSec,
       cooldowns,
       interval: null,
     };
@@ -632,7 +704,7 @@ client.on('interactionCreate', async (interaction) => {
 
       for (const value of Object.values(panel.cooldowns)) {
         if (value.end > 0 && value.end <= nowSec) {
-          value.end = nowSec + panel.durationSec;
+          value.end = nowSec + value.durationSec;
           changed = true;
         }
       }

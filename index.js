@@ -464,9 +464,13 @@ function sendExpiryReminder({ message, roleId, cellName, endTimeMs, label }) {
   });
 }
 
-async function editCountdownMessage(channel, messageId, embed) {
+async function editCountdownMessage(state, channel, messageId, embed) {
   try {
-    const liveMessage = await channel.messages.fetch(messageId);
+    let liveMessage = state?.message;
+    if (!liveMessage) {
+      liveMessage = await channel.messages.fetch(messageId);
+      if (state) state.message = liveMessage;
+    }
     await liveMessage.edit({ embeds: [embed] });
     return true;
   } catch (error) {
@@ -902,6 +906,7 @@ client.on('interactionCreate', async (interaction) => {
     reminderTimeouts: [],
     lastReminderMessage: null,
     lastRenderedSecond: null,
+    message,
   });
 
   const scheduleReminder = (beforeMs, label) => {
@@ -957,7 +962,7 @@ client.on('interactionCreate', async (interaction) => {
           endTimeMs,
           createdAtMs,
         });
-        const updated = await editCountdownMessage(message.channel, message.id, activeEmbed);
+        const updated = await editCountdownMessage(state, message.channel, message.id, activeEmbed);
         if (updated) state.lastRenderedSecond = remainingSecond;
         return;
       }
@@ -978,7 +983,7 @@ client.on('interactionCreate', async (interaction) => {
         deleteAtMs,
         expired: true,
       });
-      await editCountdownMessage(message.channel, message.id, expiredEmbed);
+      await editCountdownMessage(state, message.channel, message.id, expiredEmbed);
 
       trackedCells.delete(key);
       persistTrackingState();
@@ -1010,6 +1015,9 @@ client.on('interactionCreate', async (interaction) => {
       }
     } catch (error) {
       console.error('Fejl ved nedtælling-opdatering:', error.message);
+      if (String(error?.message || '').toLowerCase().includes('unknown message')) {
+        clearCountdownTimers(key);
+      }
     }
   };
   const state = activeCountdowns.get(key);

@@ -436,7 +436,12 @@ async function refreshTrackingEmbed(channel) {
     if (savedMessageId) {
       try {
         const oldMessage = await channel.messages.fetch(savedMessageId);
-        await oldMessage.delete();
+        try {
+          await oldMessage.delete();
+        } catch (deleteError) {
+          await oldMessage.edit({ embeds: [buildTrackingEmbed(channel.id)] });
+          return;
+        }
       } catch {
         // Ignorer hvis gammel tracker-besked ikke findes længere.
       }
@@ -957,6 +962,11 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      if (state.tickInterval) {
+        clearInterval(state.tickInterval);
+        state.tickInterval = null;
+      }
+
       const deleteAtMs = Date.now() + DELETE_AFTER_EXPIRED_MS;
       const expiredEmbed = buildCountdownEmbed({
         cellName,
@@ -1003,7 +1013,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   };
   const state = activeCountdowns.get(key);
-  if (state) state.tickInterval = setInterval(tick, 1000);
+  if (state) state.tickInterval = setInterval(tick, 250);
   await tick();
 });
 

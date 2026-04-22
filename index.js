@@ -394,7 +394,7 @@ function buildCountdownEmbed({
         name: 'Tid tilbage',
         value: expired
           ? `❌ Udløbet (${absoluteEnd})`
-          : `${formatRemaining(remaining)}\nUdløber ${relativeEnd} (${absoluteEnd})${deleteAtText}`,
+          : `${formatMinSecText(remaining / 1000)}\nUdløber ${relativeEnd} (${absoluteEnd})${deleteAtText}`,
         inline: false,
       },
       { name: 'Noter', value: note || 'Ingen noter', inline: false },

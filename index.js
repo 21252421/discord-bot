@@ -905,6 +905,8 @@ client.on('interactionCreate', async (interaction) => {
     deleteTimeout: null,
     reminderTimeouts: [],
     lastReminderMessage: null,
+    lastRenderedSecond: null,
+    isUpdating: false,
     message,
   });
 
@@ -946,11 +948,14 @@ client.on('interactionCreate', async (interaction) => {
 
   const tick = async () => {
     const remainingMs = endTimeMs - Date.now();
+    const remainingSecond = Math.max(0, Math.floor(remainingMs / 1000));
     const state = activeCountdowns.get(key);
     if (!state) return;
 
     try {
       if (remainingMs > 0) {
+        if (state.lastRenderedSecond === remainingSecond || state.isUpdating) return;
+        state.isUpdating = true;
         const activeEmbed = buildCountdownEmbed({
           cellName,
           note,
@@ -959,7 +964,9 @@ client.on('interactionCreate', async (interaction) => {
           endTimeMs,
           createdAtMs,
         });
-        await editCountdownMessage(state, message.channel, message.id, activeEmbed);
+        const updated = await editCountdownMessage(state, message.channel, message.id, activeEmbed);
+        if (updated) state.lastRenderedSecond = remainingSecond;
+        state.isUpdating = false;
         return;
       }
 
@@ -967,6 +974,7 @@ client.on('interactionCreate', async (interaction) => {
         clearInterval(state.tickInterval);
         state.tickInterval = null;
       }
+      state.isUpdating = false;
 
       const deleteAtMs = Date.now() + DELETE_AFTER_EXPIRED_MS;
       const expiredEmbed = buildCountdownEmbed({
@@ -1010,6 +1018,7 @@ client.on('interactionCreate', async (interaction) => {
         state.deleteTimeout = deleteTimeout;
       }
     } catch (error) {
+      state.isUpdating = false;
       console.error('Fejl ved nedtælling-opdatering:', error.message);
       if (String(error?.message || '').toLowerCase().includes('unknown message')) {
         clearCountdownTimers(key);
@@ -1017,7 +1026,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   };
   const state = activeCountdowns.get(key);
-  if (state) state.tickInterval = setInterval(tick, 1000);
+  if (state) state.tickInterval = setInterval(tick, 250);
   await tick();
 });
 

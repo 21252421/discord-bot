@@ -41,7 +41,7 @@ const COOLDOWN_ITEMS = [
   { id: 'b_kiste', label: 'B - Hemmelig Kiste', emoji: '🎁', row: 0, defaultSec: 20 * 60 },
   { id: 'b_pvp', label: 'B - PvP Mine', emoji: '⚔️', row: 0, defaultSec: 25 * 60 },
   { id: 'bp_vv', label: 'B+ - VV', emoji: '💎', row: 1, defaultSec: 60 * 60 },
-  { id: 'bp_pvp', label: 'B+ - PvP Mine', emoji: '⛏️', row: 1, defaultSec: 25 * 60 },
+  { id: 'bp_pvp', label: 'B+ - PvP Mine', emoji: '⛏️', row: 1, defaultSec: 25 * 60 + 50 },
 ];
 
 if (!TOKEN || !CLIENT_ID) {
